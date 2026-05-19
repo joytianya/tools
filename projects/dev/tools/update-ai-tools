@@ -11,6 +11,7 @@ log() {
 mkdir -p "$(dirname "$LOG_FILE")" "$(dirname "$LOCK_FILE")"
 
 exec 9>"$LOCK_FILE"
+trap 'rm -f "$LOCK_FILE"' EXIT
 if ! flock -n 9; then
     log "Another update is already running; exiting."
     exit 0
@@ -24,7 +25,7 @@ log "===== Starting AI tools update ====="
 
 log "--- Updating Claude Code ---"
 if command -v claude &>/dev/null; then
-    claude update 2>&1 | tee -a "$LOG_FILE" || log "Claude Code update failed (may already be latest)"
+    { claude update 2>&1 || log "Claude Code update failed (may already be latest)"; } | tee -a "$LOG_FILE"
     log "Claude Code version: $(claude --version 2>&1 | head -1)"
 else
     log "claude not found, skipping"
@@ -32,7 +33,7 @@ fi
 
 log "--- Updating Codex ---"
 if command -v npm &>/dev/null; then
-    npm install -g @openai/codex 2>&1 | tee -a "$LOG_FILE" || log "Codex update failed"
+    { npm install -g @openai/codex 2>&1 || log "Codex update failed"; } | tee -a "$LOG_FILE"
     if command -v codex &>/dev/null; then
         log "Codex version: $(codex --version 2>&1 | head -1)"
     fi
