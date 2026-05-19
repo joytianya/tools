@@ -1,0 +1,9 @@
+[Unit]
+Description=Update AI tools (Claude Code and Codex)
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=oneshot
+Environment=NPM_CONFIG_UPDATE_NOTIFIER=false
+ExecStart=%h/.local/bin/update-ai-tools
