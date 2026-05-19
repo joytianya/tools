@@ -1,0 +1,43 @@
+#!/usr/bin/env bash
+set -Eeuo pipefail
+
+LOG_FILE="${LOG_FILE:-$HOME/.local/share/update-ai-tools/update.log}"
+LOCK_FILE="${LOCK_FILE:-$HOME/.local/share/update-ai-tools/update.lock}"
+
+log() {
+    printf '[%s] %s\n' "$(date '+%Y-%m-%d %H:%M:%S')" "$*" | tee -a "$LOG_FILE"
+}
+
+mkdir -p "$(dirname "$LOG_FILE")" "$(dirname "$LOCK_FILE")"
+
+exec 9>"$LOCK_FILE"
+if ! flock -n 9; then
+    log "Another update is already running; exiting."
+    exit 0
+fi
+
+export NVM_DIR="${NVM_DIR:-$HOME/.nvm}"
+# shellcheck source=/dev/null
+[ -s "$NVM_DIR/nvm.sh" ] && source "$NVM_DIR/nvm.sh"
+
+log "===== Starting AI tools update ====="
+
+log "--- Updating Claude Code ---"
+if command -v claude &>/dev/null; then
+    claude update 2>&1 | tee -a "$LOG_FILE" || log "Claude Code update failed (may already be latest)"
+    log "Claude Code version: $(claude --version 2>&1 | head -1)"
+else
+    log "claude not found, skipping"
+fi
+
+log "--- Updating Codex ---"
+if command -v npm &>/dev/null; then
+    npm install -g @openai/codex 2>&1 | tee -a "$LOG_FILE" || log "Codex update failed"
+    if command -v codex &>/dev/null; then
+        log "Codex version: $(codex --version 2>&1 | head -1)"
+    fi
+else
+    log "npm not found, skipping"
+fi
+
+log "===== Update complete ====="
