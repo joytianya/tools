@@ -1,0 +1,7 @@
+{
+  "tool_name": "Read",
+  "tool_input_preview": "{\"file_path\":\"/Users/matrix/.claude/projects/-Users-matrix-projects-dev-tools/memory/MEMORY.md\"}",
+  "error": "File does not exist. Note: your current working directory is /Users/matrix/projects/dev/tools.",
+  "timestamp": "2026-05-24T00:22:28.974Z",
+  "retry_count": 1
+}
