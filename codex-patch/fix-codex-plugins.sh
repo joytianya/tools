@@ -229,8 +229,69 @@ new = (
 
 patched_scope = scope[:start] + new + scope[end:]
 data = data[:func_start] + patched_scope + data[func_end:]
-open(path, 'w').write(data)
-print('[patch] Sidebar Plugins item replaced with enabled version')
+
+# If the native Skills/Apps entry is also present, the replacement just created a
+# duplicate "Plugins" item. Remove the one we just added and rely on the native entry.
+def remove_extra_plugins_nav(source):
+    if 'sidebarElectron.skillsAppsRouteNavLink' not in source:
+        return source, False
+    marker = 'pathname.startsWith(`/plugins`)'
+    idx = source.find(marker)
+    if idx == -1:
+        return source, False
+    start = source.rfind(',(0,', 0, idx)
+    if start == -1:
+        return source, False
+    quote = None
+    escape = False
+    paren = brace = bracket = 0
+    entered = False
+    for pos in range(start + 1, len(source)):
+        ch = source[pos]
+        if quote:
+            if escape:
+                escape = False
+                continue
+            if ch == '\\':
+                escape = True
+                continue
+            if ch == quote:
+                quote = None
+            continue
+        if ch in ('"', "'", '`'):
+            quote = ch
+            continue
+        if ch == '(':
+            paren += 1
+            entered = True
+        elif ch == ')':
+            paren -= 1
+        elif ch == '{':
+            brace += 1
+            entered = True
+        elif ch == '}':
+            brace -= 1
+        elif ch == '[':
+            bracket += 1
+            entered = True
+        elif ch == ']':
+            bracket -= 1
+        if entered and paren == 0 and brace == 0 and bracket == 0:
+            if pos + 1 < len(source) and source[pos + 1] == '(':
+                continue
+            candidate = source[start:pos + 1]
+            if 'sidebarElectron.pluginsRouteNavLink' not in candidate:
+                return source, False
+            return source[:start] + source[pos + 1:], True
+    return source, False
+
+data, removed = remove_extra_plugins_nav(data)
+if removed:
+    open(path, 'w').write(data)
+    print('[patch] Sidebar: native Skills/Apps entry already shows Plugins – removed duplicate')
+else:
+    open(path, 'w').write(data)
+    print('[patch] Sidebar Plugins item replaced with enabled version')
 PYEOF
 fi
 
@@ -434,8 +495,14 @@ else
 fi
 
 # ── re-sign with ad-hoc signature ────────────────────────────────────────────
-log "Re-signing app (ad-hoc)"
-codesign --force --deep --sign - "$APP" 2>/dev/null
+# Only re-sign if the current signature is not already ad-hoc (avoids macOS security dialog)
+CURRENT_SIG=$(codesign -dv "$APP" 2>&1 | grep 'Signature=' || true)
+if echo "$CURRENT_SIG" | grep -q 'adhoc'; then
+    log "App already ad-hoc signed – skipping codesign (no macOS dialog)"
+else
+    log "Re-signing app (ad-hoc)"
+    codesign --force --deep --sign - "$APP" 2>/dev/null
+fi
 
 # ── cleanup ──────────────────────────────────────────────────────────────────
 rm -rf "$WORK"
