@@ -47,6 +47,22 @@ test("patchExtractedCodexApp opens the older gradient-hosted plugin auth gate", 
   });
 });
 
+test("patchExtractedCodexApp skips plugin auth when current app has no auth gate", () => {
+  withFixture((root) => {
+    const assets = join(root, "webview", "assets");
+    mkdirSync(assets, { recursive: true });
+
+    const gradient = join(assets, "gradient-B8xrjm6E.js");
+    const source = "var e=``+new URL(`gradient-DoN1ti1h.png`,import.meta.url).href;export{e as t};\n";
+    writeFileSync(gradient, source);
+
+    const result = patchExtractedCodexApp(root);
+
+    assert.equal(result.pluginAuth, "pattern-not-found");
+    assert.equal(readFileSync(gradient, "utf8"), source);
+  });
+});
+
 test("patchExtractedCodexApp adds a plugin-only ChatGPT account fallback without changing request routing", () => {
   withFixture((root) => {
     const assets = join(root, "webview", "assets");
@@ -117,6 +133,85 @@ test("patchExtractedCodexApp supports current hashed app-server and auth bundle 
     assert.equal(result.useAuthAccountFields, "patched");
     const patchedUseAuth = readFileSync(useAuth, "utf8");
     assert.match(patchedUseAuth, /accountId:y\.accountId\?\?null,userId:y\.userId\?\?null,computeResidency:null/);
+  });
+});
+
+test("patchExtractedCodexApp supports current plugin hook loading gate shape", () => {
+  withFixture((root) => {
+    const assets = join(root, "webview", "assets");
+    mkdirSync(assets, { recursive: true });
+
+    const pluginAuth = join(assets, "plugin-auth-Drbk5jr_.js");
+    writeFileSync(pluginAuth, "function e(e){return e!==`chatgpt`}export{e as t};\n");
+
+    const usePlugins = join(assets, "use-plugins-C8ZDLcLG.js");
+    writeFileSync(
+      usePlugins,
+      "async function q(){await p(`list-plugins`,{})}\n" +
+        "function usePlugins(){let z={isLoading:false,isFetching:false},m={isLoading:false,isFetching:false},w={isLoading:false},A={isLoading:false},S={isLoading:false};" +
+        "let availablePlugins=[],X=j&&m.isLoading||z.isLoading||w.isLoading||A.isLoading||S.isLoading,Z=j&&m.isFetching||z.isFetching||S.isFetching;" +
+        "return{availablePlugins,isLoading:X,isFetching:Z}}\n",
+    );
+
+    const result = patchExtractedCodexApp(root);
+
+    assert.equal(result.pluginsHookLoading, "patched");
+    const patched = readFileSync(usePlugins, "utf8");
+    assert.match(patched, /X=\/\*codex-patch:plugins-loading\*\/j&&m\.isLoading\|\|z\.isLoading/);
+    assert.match(patched, /Z=j&&m\.isFetching\|\|z\.isFetching/);
+    assert.doesNotMatch(patched, /w\.isLoading\|\|A\.isLoading\|\|S\.isLoading/);
+  });
+});
+
+test("patchExtractedCodexApp supports current plugins page loading gate shape", () => {
+  withFixture((root) => {
+    const assets = join(root, "webview", "assets");
+    mkdirSync(assets, { recursive: true });
+
+    const pluginAuth = join(assets, "plugin-auth-Drbk5jr_.js");
+    writeFileSync(pluginAuth, "function e(e){return e!==`chatgpt`}export{e as t};\n");
+
+    const pluginsPage = join(assets, "plugins-page-D2hN-W-s.js");
+    writeFileSync(
+      pluginsPage,
+      "var Z={loading:{id:`plugins.page.loading`,defaultMessage:`Loading plugins…`}};" +
+        "function Or(){let {errorMessage:cn,featuredPluginIds:un,isLoading:dn,isFetching:mn,marketplaceLoadErrors:hn,marketplaces:gn,availablePlugins:_n,installedPlugins:vn,forceReload:yn,refetch:Y}=pe(I,K);" +
+        "let Ea=dn||X&&Ue||X&&ai&&Q===`plugins`&&Dn||we===`loading`||(bi?Dn||kn:zi&&Dn||Ri===Tr&&kn),Da=z||dn||mn;" +
+        "return {isLoading:Ea,isRetrying:Da}}\n",
+    );
+
+    const result = patchExtractedCodexApp(root);
+
+    assert.equal(result.pluginsPageLoading, "patched");
+    const patched = readFileSync(pluginsPage, "utf8");
+    assert.match(patched, /Ea=\/\*codex-patch:plugins-page-loading\*\/dn,Da=/);
+    assert.doesNotMatch(patched, /we===`loading`/);
+  });
+});
+
+test("patchExtractedCodexApp adds desktop auth headers to WHAM requests", () => {
+  withFixture((root) => {
+    const assets = join(root, "webview", "assets");
+    mkdirSync(assets, { recursive: true });
+
+    const pluginAuth = join(assets, "plugin-auth-Drbk5jr_.js");
+    writeFileSync(pluginAuth, "function e(e){return e!==`chatgpt`}export{e as t};\n");
+
+    const build = join(root, ".vite", "build");
+    mkdirSync(build, { recursive: true });
+    const main = join(build, "main-BS7yenMI.js");
+    writeFileSync(
+      main,
+      "var HJ=!1,UJ=new WeakSet;function WJ(){if(HJ)return;let e=`session`in n?n.session?.defaultSession:void 0;e?.webRequest!=null&&(HJ=!0,e.webRequest.onBeforeSendHeaders((t,r)=>{let i=t.requestHeaders;r({requestHeaders:OJ({frame:t.frame,requestHeaders:i,url:t.url})?BJ(i,{acceptLanguage:KJ(),excludedUserAgentProducts:[`Electron`,n.app.getName()],userAgent:e.getUserAgent()}):i})}))}\n",
+    );
+
+    const result = patchExtractedCodexApp(root);
+
+    assert.equal(result.whamDesktopAuth, "patched");
+    const patched = readFileSync(main, "utf8");
+    assert.match(patched, /codex-patch:wham-desktop-auth/);
+    assert.match(patched, /codexPatchWhamDesktopAuthHeaders\(t\.url,t\.requestHeaders\)/);
+    assert.match(patched, /\/backend-api\/wham\//);
   });
 });
 

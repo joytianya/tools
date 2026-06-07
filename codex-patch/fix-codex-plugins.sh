@@ -10,6 +10,7 @@ APP="/Applications/Codex.app"
 ASAR="$APP/Contents/Resources/app.asar"
 PLIST="$APP/Contents/Info.plist"
 WORK="/tmp/codex_patch_$$"
+SIGN_IDENTITY="${CODEX_PATCH_SIGN_IDENTITY:-Codex Local Patch Signing}"
 
 log()  { echo "[patch] $*"; }
 die()  { echo "[error] $*" >&2; exit 1; }
@@ -20,6 +21,81 @@ die()  { echo "[error] $*" >&2; exit 1; }
 command -v node  >/dev/null 2>&1 || die "node not found (install Node.js)"
 command -v npx   >/dev/null 2>&1 || die "npx not found (install Node.js)"
 command -v python3 >/dev/null 2>&1 || die "python3 not found"
+
+patch_claude_installed_plugins() {
+    local cache="$HOME/.codex/plugins/cache/claude-installed-local"
+    [[ -d "$cache" ]] || return 0
+
+    python3 - "$cache" <<'PYEOF'
+import json
+import pathlib
+import sys
+
+cache = pathlib.Path(sys.argv[1])
+
+for name in ("ecc", "oh-my-claudecode"):
+    for hooks in cache.glob(f"{name}/*/hooks/hooks.json"):
+        try:
+            data = json.loads(hooks.read_text())
+        except Exception as exc:
+            print(f"[warn]  Could not read {hooks}: {exc}")
+            continue
+        if data.get("hooks") == {}:
+            continue
+        data["hooks"] = {}
+        hooks.write_text(json.dumps(data, indent=2) + "\n")
+        print(f"[patch] Disabled Codex-incompatible hooks: {hooks}")
+
+for mcp in cache.glob("oh-my-claudecode/*/.mcp.json"):
+    try:
+        data = json.loads(mcp.read_text())
+    except Exception as exc:
+        print(f"[warn]  Could not read {mcp}: {exc}")
+        continue
+    server = data.setdefault("mcpServers", {}).setdefault("t", {})
+    target = str(mcp.parent / "bridge" / "mcp-server.cjs")
+    changed = server.get("command") != "node" or server.get("args") != [target]
+    server["command"] = "node"
+    server["args"] = [target]
+    if changed:
+        mcp.write_text(json.dumps(data, indent=2) + "\n")
+        print(f"[patch] Fixed OMC t MCP path: {mcp}")
+PYEOF
+}
+
+app_bundle_patch_current() {
+    local marker
+    local required_markers=(
+        'codex-patch:auth-account-fields'
+        'codex-patch:plugin-account-fallback'
+        'codex-patch:plugins-loading'
+        'codex-patch:plugins-page-loading'
+    )
+
+    for marker in "${required_markers[@]}"; do
+        grep -a -q "$marker" "$ASAR" || return 1
+    done
+
+    if npx @electron/fuses read --app "$APP" 2>/dev/null |
+        grep 'EnableEmbeddedAsarIntegrityValidation' |
+        grep -q 'Enabled'; then
+        return 1
+    fi
+
+    codesign --verify --deep --strict "$APP" >/dev/null 2>&1 || return 1
+}
+
+patch_claude_installed_plugins
+
+if [[ -f "$SCRIPT_DIR/patch-codex-chrome-browser-use.mjs" ]]; then
+    node "$SCRIPT_DIR/patch-codex-chrome-browser-use.mjs"
+fi
+
+if app_bundle_patch_current; then
+    log "Codex.app bundle patches already current – skipping app.asar repack and app re-sign."
+    log "Done. Launch Codex – Plugins and Codex Mobile setup requests should now use the local ChatGPT login."
+    exit 0
+fi
 
 # kill running Codex so we can write to the bundle
 if pgrep -x Codex >/dev/null 2>&1; then
@@ -140,6 +216,8 @@ PYEOF
         else
             log "Sidebar Plugins item already patched – skipping"
         fi
+    elif grep -rl 'sidebarElectron.skillsAppsRouteNavLink' "$WORK/webview/assets/"*.js >/dev/null 2>&1; then
+        log "Sidebar native Skills/Apps entry already handles Plugins – skipping"
     else
         die "Cannot find sidebar JS file"
     fi
@@ -303,8 +381,11 @@ fi
 if [[ -z "$SKILLS_PAGE" ]]; then
     SKILLS_PAGE=$(grep -rl 'gradient-Dio5-IUz' "$WORK/webview/assets/"*.js 2>/dev/null | head -1 || true)
 fi
-[[ -n "$SKILLS_PAGE" ]] || die "Cannot find skills-page JS file"
+if [[ -z "$SKILLS_PAGE" ]]; then
+    log "[warn] skills-page auth gate not found – skipping skills-page patch"
+fi
 
+if [[ -n "$SKILLS_PAGE" ]]; then
 python3 - "$SKILLS_PAGE" <<'PYEOF'
 import sys, re
 
@@ -353,6 +434,7 @@ for pattern, replacement in patterns:
 if not patched:
     print('[warn]  skills-page pattern not found – may need manual update')
 PYEOF
+fi
 
 # ── patch 3: plugins hook – don't block list rendering on availability probes ─
 PLUGINS_HOOK=$(grep -rl 'cwdPluginsResponse' "$WORK/webview/assets/"*.js 2>/dev/null | head -1 || true)
@@ -462,6 +544,12 @@ if [[ -n "$CORE_PATCHED_MODULES" ]]; then
     done <<< "$CORE_PATCHED_MODULES"
 fi
 
+MAIN_PATCHED_MODULE=$(grep -rl 'codex-patch:wham-desktop-auth' "$WORK/.vite/build/"main-*.js 2>/dev/null | head -1 || true)
+if [[ -n "$MAIN_PATCHED_MODULE" ]]; then
+    log "Validating patched main module syntax"
+    node --check "$MAIN_PATCHED_MODULE" >/dev/null
+fi
+
 APP_MAIN=$(grep -rl 'sidebarElectron.pluginsRouteNavLink' "$WORK/webview/assets/"*.js 2>/dev/null | xargs grep -l 'pathname.startsWith(`/plugins`)' 2>/dev/null | head -1 || true)
 if [[ -n "$APP_MAIN" ]]; then
     log "Validating patched app-main module syntax"
@@ -494,17 +582,19 @@ else
     log "Integrity fuse already disabled – skipping"
 fi
 
-# ── re-sign with ad-hoc signature ────────────────────────────────────────────
-# Only re-sign if the current signature is not already ad-hoc (avoids macOS security dialog)
-CURRENT_SIG=$(codesign -dv "$APP" 2>&1 | grep 'Signature=' || true)
-if echo "$CURRENT_SIG" | grep -q 'adhoc'; then
-    log "App already ad-hoc signed – skipping codesign (no macOS dialog)"
+# ── re-sign with a stable local identity when available ──────────────────────
+# Ad-hoc signatures change identity whenever the bundle changes, which can make
+# macOS Keychain ask again for access. A persistent local signing identity keeps
+# the designated requirement stable across repacks.
+if [[ -n "$SIGN_IDENTITY" ]] && security find-identity -v -p codesigning | grep -F "\"$SIGN_IDENTITY\"" >/dev/null 2>&1; then
+    log "Re-signing app with local identity: $SIGN_IDENTITY"
+    codesign --force --deep --sign "$SIGN_IDENTITY" "$APP" 2>/dev/null
 else
-    log "Re-signing app (ad-hoc)"
+    log "Re-signing app (ad-hoc; set CODEX_PATCH_SIGN_IDENTITY to reduce repeated Keychain prompts)"
     codesign --force --deep --sign - "$APP" 2>/dev/null
 fi
 
 # ── cleanup ──────────────────────────────────────────────────────────────────
 rm -rf "$WORK"
 
-log "Done. Launch Codex – the Plugins item should now work while chat keeps the configured app-server provider."
+log "Done. Launch Codex – Plugins and Codex Mobile setup requests should now use the local ChatGPT login."

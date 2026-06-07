@@ -1289,9 +1289,14 @@ generate_universal_starship_config() {
 
     local starship_config="$HOME/.config/starship.toml"
     local starship_format
+    local starship_timeout
+    local starship_prelude
     starship_format='format = """
 [╭─](bold blue)$os$username[@](bold blue)$hostname[ in ](bold blue)$directory$git_branch$git_status$nodejs$python$rust$golang$java$docker_context$package$cmd_duration
 [╰─](bold blue)$character"""'
+    starship_timeout='command_timeout = 2000'
+    starship_prelude="${starship_format}
+${starship_timeout}"
 
     if [ -f "$HOME/.config/starship.toml" ]; then
         local starship_backup="$starship_config.bak-$(date +%Y%m%d_%H%M%S)"
@@ -1299,7 +1304,12 @@ generate_universal_starship_config() {
         info "已备份现有 Starship 配置: $starship_backup"
 
         if grep -q '^format[[:space:]]*=[[:space:]]*"""' "$starship_config"; then
-            awk -v replacement="$starship_format" '
+            local replacement="$starship_format"
+            if ! grep -q '^command_timeout[[:space:]]*=' "$starship_config"; then
+                replacement="$starship_prelude"
+            fi
+
+            awk -v replacement="$replacement" '
                 BEGIN { skipping=0 }
                 /^format[[:space:]]*=[[:space:]]*"""/ {
                     print replacement
@@ -1319,7 +1329,11 @@ generate_universal_starship_config() {
             success "已更新 Starship 两行提示符 format"
         else
             {
-                printf '%s\n\n' "$starship_format"
+                if grep -q '^command_timeout[[:space:]]*=' "$starship_config"; then
+                    printf '%s\n\n' "$starship_format"
+                else
+                    printf '%s\n\n' "$starship_prelude"
+                fi
                 cat "$starship_config"
             } > "${starship_config}.tmp" && mv "${starship_config}.tmp" "$starship_config"
             success "已追加 Starship 两行提示符 format"
@@ -1333,6 +1347,8 @@ generate_universal_starship_config() {
 format = """
 [╭─](bold blue)$os$username[@](bold blue)$hostname[ in ](bold blue)$directory$git_branch$git_status$nodejs$python$rust$golang$java$docker_context$package$cmd_duration
 [╰─](bold blue)$character"""
+
+command_timeout = 2000
 
 [os]
 disabled = false

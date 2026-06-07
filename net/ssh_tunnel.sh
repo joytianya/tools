@@ -16,6 +16,32 @@ REMOTE_PORT="7890"
 SSH_PID_DIR="/tmp/ssh_tunnels"
 mkdir -p "$SSH_PID_DIR"
 
+first_configured_host() {
+    for host in "${REMOTE_HOSTS[@]}"; do
+        [[ "$host" =~ ^[[:space:]]*# ]] && continue
+        echo "$host"
+        return 0
+    done
+    return 1
+}
+
+foreground_tunnel() {
+    local host
+    host="$(first_configured_host)" || {
+        echo "❌ 没有配置可用的SSH隧道主机" >&2
+        return 1
+    }
+
+    echo "🚀 前台运行SSH隧道: $host"
+    exec /opt/homebrew/bin/autossh -M 0 -N \
+        -R localhost:${REMOTE_PORT}:localhost:${LOCAL_PORT} \
+        -o ServerAliveInterval=60 \
+        -o ServerAliveCountMax=3 \
+        -o ExitOnForwardFailure=yes \
+        -o ConnectTimeout=10 \
+        $host
+}
+
 # 启动SSH隧道
 start_tunnel() {
     echo "🚀 启动SSH隧道到多个主机..."
@@ -199,6 +225,7 @@ restart_tunnel() {
 }
 
 case "$1" in
+    "foreground")  foreground_tunnel ;;
     "start"|"on")    start_tunnel ;;
     "stop"|"off")    stop_tunnel ;;
     "status"|"check") check_status ;;

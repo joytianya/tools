@@ -1,0 +1,8 @@
+# Remote SSH targets whose Codex remote-control daemons should be synced/restarted/watched.
+# Put one target per line. The first column is used as the ssh/scp target.
+# Examples:
+#   bwg-server-zxw
+#   zxw@203.0.113.10
+#   203.0.113.11
+bwg-server-zxw
+ali-server-zxw

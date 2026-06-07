@@ -1,0 +1,24 @@
+
+# --- added by migrate.sh ---
+# Runtime/test artifacts (currently committed — untracked via git rm --cached below)
+.paseo-edge-tts-bridge-test.mp3
+.paseo-edge-tts-bridge-test.pcm
+.paseo-edge-tts-bridge.log
+.paseo-edge-tts-bridge.pid
+.paseo-edge-tts-paseo-pcm-test.pcm
+.paseo-edge-tts-test.mp3
+
+# Generic patterns so regenerated artifacts stay ignored
+.paseo-edge-tts-*
+*.pcm
+*.mp3
+*.log
+*.pid
+
+# vibe-kanban salvage outputs (ROOT_DIR-derived)
+.vk-home/
+.vk-home-migrated/
+
+# Agent runtime state (oh-my-claudecode / Claude Code) — not source
+.omc/
+.claude/

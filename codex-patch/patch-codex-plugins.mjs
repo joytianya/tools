@@ -5,6 +5,9 @@ import { fileURLToPath } from "node:url";
 const PLUGIN_AUTH_OPEN_MARKER = "/*codex-patch:plugin-auth-open*/";
 const PLUGIN_ACCOUNT_FALLBACK_MARKER = "/*codex-patch:plugin-account-fallback*/";
 const AUTH_ACCOUNT_FIELDS_MARKER = "/*codex-patch:auth-account-fields*/";
+const PLUGINS_HOOK_LOADING_MARKER = "/*codex-patch:plugins-loading*/";
+const PLUGINS_PAGE_LOADING_MARKER = "/*codex-patch:plugins-page-loading*/";
+const WHAM_DESKTOP_AUTH_MARKER = "/*codex-patch:wham-desktop-auth*/";
 
 export function patchExtractedCodexApp(root) {
   const assetsDir = join(root, "webview", "assets");
@@ -15,13 +18,22 @@ export function patchExtractedCodexApp(root) {
   const pluginAuth = patchPluginAuthGate(assetsDir);
   const accountFallback = patchPluginAccountFallback(assetsDir);
   const useAuthAccountFields = patchUseAuthAccountFields(assetsDir);
+  const pluginsHookLoading = patchPluginsHookLoadingGate(assetsDir);
+  const pluginsPageLoading = patchPluginsPageLoadingGate(assetsDir);
+  const whamDesktopAuth = patchWhamDesktopAuth(root);
   return {
     pluginAuth: pluginAuth.status,
-    pluginAuthPath: relative(root, pluginAuth.path),
+    pluginAuthPath: pluginAuth.path == null ? null : relative(root, pluginAuth.path),
     accountFallback: accountFallback.status,
     accountFallbackPath: accountFallback.path == null ? null : relative(root, accountFallback.path),
     useAuthAccountFields: useAuthAccountFields.status,
     useAuthAccountFieldsPath: useAuthAccountFields.path == null ? null : relative(root, useAuthAccountFields.path),
+    pluginsHookLoading: pluginsHookLoading.status,
+    pluginsHookLoadingPath: pluginsHookLoading.path == null ? null : relative(root, pluginsHookLoading.path),
+    pluginsPageLoading: pluginsPageLoading.status,
+    pluginsPageLoadingPath: pluginsPageLoading.path == null ? null : relative(root, pluginsPageLoading.path),
+    whamDesktopAuth: whamDesktopAuth.status,
+    whamDesktopAuthPath: whamDesktopAuth.path == null ? null : relative(root, whamDesktopAuth.path),
   };
 }
 
@@ -33,7 +45,7 @@ function patchPluginAuthGate(assetsDir) {
   ].map((name) => join(assetsDir, name));
 
   if (candidates.length === 0) {
-    throw new Error("Cannot find plugin-auth JS file");
+    return { path: null, status: "not-found" };
   }
 
   for (const path of candidates) {
@@ -72,7 +84,7 @@ function patchPluginAuthGate(assetsDir) {
     }
   }
 
-  throw new Error("plugin-auth JS file did not match a known auth gate shape");
+  return { path: candidates[0], status: "pattern-not-found" };
 }
 
 function isPluginAuthGateCandidate(path, data) {
@@ -186,6 +198,151 @@ function patchUseAuthAccountFields(assetsDir) {
   return { path: candidates[0], status: "pattern-not-found" };
 }
 
+function patchPluginsHookLoadingGate(assetsDir) {
+  const candidates = readdirSync(assetsDir)
+    .filter((name) => /\.js$/.test(name))
+    .map((name) => join(assetsDir, name))
+    .filter((path) => {
+      const data = readFileSync(path, "utf8");
+      return (
+        data.includes(PLUGINS_HOOK_LOADING_MARKER) ||
+        (data.includes("availablePlugins") && data.includes("list-plugins"))
+      );
+    });
+
+  for (const path of candidates) {
+    const data = readFileSync(path, "utf8");
+    if (data.includes(PLUGINS_HOOK_LOADING_MARKER)) {
+      return { path, status: "already-patched" };
+    }
+
+    const patched = data.replace(
+      /([A-Za-z_$][\w$]*)=([A-Za-z_$][\w$]*)&&([A-Za-z_$][\w$]*)\.isLoading\|\|([A-Za-z_$][\w$]*)\.isLoading\|\|([A-Za-z_$][\w$]*)\.isLoading\|\|([A-Za-z_$][\w$]*)\.isLoading\|\|([A-Za-z_$][\w$]*)\.isLoading,([A-Za-z_$][\w$]*)=\2&&\3\.isFetching\|\|\4\.isFetching\|\|\7\.isFetching/,
+      (_match, loadingVar, rootsFlag, rootsQuery, pluginsQuery, _availabilityA, _availabilityB, _availabilityC, fetchingVar) =>
+        `${loadingVar}=${PLUGINS_HOOK_LOADING_MARKER}${rootsFlag}&&${rootsQuery}.isLoading||${pluginsQuery}.isLoading,${fetchingVar}=${rootsFlag}&&${rootsQuery}.isFetching||${pluginsQuery}.isFetching`,
+    );
+
+    if (patched !== data) {
+      writeFileSync(path, patched);
+      return { path, status: "patched" };
+    }
+  }
+
+  return { path: candidates[0] ?? null, status: candidates.length === 0 ? "not-found" : "pattern-not-found" };
+}
+
+function patchPluginsPageLoadingGate(assetsDir) {
+  const candidates = [
+    ...readdirSync(assetsDir).filter((name) => /^plugins-page-.*\.js$/.test(name)),
+    ...readdirSync(assetsDir).filter((name) => /\.js$/.test(name) && !/^plugins-page-.*\.js$/.test(name)),
+  ]
+    .map((name) => join(assetsDir, name))
+    .filter((path) => {
+      const data = readFileSync(path, "utf8");
+      return data.includes(PLUGINS_PAGE_LOADING_MARKER) || data.includes("plugins.page.loading");
+    });
+
+  for (const path of candidates) {
+    const data = readFileSync(path, "utf8");
+    if (data.includes(PLUGINS_PAGE_LOADING_MARKER)) {
+      const tightened = data.replace(
+        /([A-Za-z_$][\w$]*)=\/\*codex-patch:plugins-page-loading\*\/([A-Za-z_$][\w$]*)(?:\|\|[^,]+)?,/,
+        (_match, loadingVar, pluginLoadingVar) => `${loadingVar}=${PLUGINS_PAGE_LOADING_MARKER}${pluginLoadingVar},`,
+      );
+      if (tightened !== data) {
+        writeFileSync(path, tightened);
+        return { path, status: "patched" };
+      }
+      return { path, status: "already-patched" };
+    }
+
+    const pluginLoading = data.match(
+      /\{errorMessage:[^,]+,featuredPluginIds:[^,]+,isLoading:([A-Za-z_$][\w$]*),isFetching:[^,]+,marketplaceLoadErrors:[^,]+,marketplaces:[^,]+,availablePlugins:[^,]+,installedPlugins:[^,]+,forceReload:[^,]+,refetch:[^}]+\}=[A-Za-z_$][\w$]*\([^)]*\)/,
+    )?.[1];
+    if (pluginLoading == null) {
+      continue;
+    }
+
+    const currentShape = new RegExp(
+      `([A-Za-z_$][\\w$]*)=${escapeRegExp(pluginLoading)}\\|\\|[^,]+,([A-Za-z_$][\\w$]*)=`,
+    );
+    const patched = data.replace(
+      currentShape,
+      (_match, pageLoadingVar, nextVar) => `${pageLoadingVar}=${PLUGINS_PAGE_LOADING_MARKER}${pluginLoading},${nextVar}=`,
+    );
+
+    if (patched !== data) {
+      writeFileSync(path, patched);
+      return { path, status: "patched" };
+    }
+
+    const legacyPatched = data.replace(
+      /([A-Za-z_$][\w$]*)=([A-Za-z_$][\w$]*)\|\|([A-Za-z_$][\w$]*)===`loading`\|\|([A-Za-z_$][\w$]*)&&([A-Za-z_$][\w$]*),([A-Za-z_$][\w$]*)=/,
+      (_match, loadingVar, queryLoading, _pageLoadingState, _importedLoading, _importedEnabled, nextVar) =>
+        `${loadingVar}=${PLUGINS_PAGE_LOADING_MARKER}${queryLoading},${nextVar}=`,
+    );
+
+    if (legacyPatched !== data) {
+      writeFileSync(path, legacyPatched);
+      return { path, status: "patched" };
+    }
+  }
+
+  return { path: candidates[0] ?? null, status: candidates.length === 0 ? "not-found" : "pattern-not-found" };
+}
+
+function escapeRegExp(value) {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+function patchWhamDesktopAuth(root) {
+  const buildDir = join(root, ".vite", "build");
+  if (!existsSync(buildDir)) {
+    return { path: null, status: "not-found" };
+  }
+
+  const candidates = readdirSync(buildDir)
+    .filter((name) => /^main-.*\.js$/.test(name))
+    .map((name) => join(buildDir, name));
+
+  for (const path of candidates) {
+    const data = readFileSync(path, "utf8");
+    if (data.includes(WHAM_DESKTOP_AUTH_MARKER)) {
+      return { path, status: "already-patched" };
+    }
+    if (!data.includes("function WJ()") || !data.includes("onBeforeSendHeaders")) {
+      continue;
+    }
+
+    const helperAnchor = "var HJ=!1,UJ=new WeakSet;function WJ(){";
+    if (!data.includes(helperAnchor)) {
+      continue;
+    }
+
+    const helperInserted = data.replace(helperAnchor, `${whamDesktopAuthHelper()}${helperAnchor}`);
+    const patched = helperInserted.replace(
+      "let i=t.requestHeaders;r({requestHeaders:OJ({frame:t.frame,requestHeaders:i,url:t.url})?BJ(i,",
+      "let i=codexPatchWhamDesktopAuthHeaders(t.url,t.requestHeaders);r({requestHeaders:OJ({frame:t.frame,requestHeaders:i,url:t.url})?BJ(i,",
+    );
+
+    if (patched !== data) {
+      writeFileSync(path, patched);
+      return { path, status: "patched" };
+    }
+  }
+
+  return { path: candidates[0] ?? null, status: candidates.length === 0 ? "not-found" : "pattern-not-found" };
+}
+
+function whamDesktopAuthHelper() {
+  return [
+    `function codexPatchWhamDesktopAuthSetHeader(e,t,n){let r=Object.keys(e).find(e=>e.toLowerCase()===t.toLowerCase());r!=null&&r!==t&&delete e[r],e[t]=n}`,
+    `let codexPatchWhamDesktopAuthCache=null,codexPatchWhamDesktopAuthCacheAt=0;function codexPatchWhamDesktopAuthRead(){let e=Date.now();if(e-codexPatchWhamDesktopAuthCacheAt<15e3)return codexPatchWhamDesktopAuthCache;codexPatchWhamDesktopAuthCacheAt=e;try{let e=require("fs"),t=require("path"),n=require("os"),r=process.env.CODEX_HOME||t.join(n.homedir(),".codex"),i=JSON.parse(e.readFileSync(t.join(r,"auth.json"),"utf8"));if(i?.auth_mode!==\`chatgpt\`)return codexPatchWhamDesktopAuthCache=null;let a=i.tokens?.access_token;if(typeof a!==\`string\`||a.length===0)return codexPatchWhamDesktopAuthCache=null;return codexPatchWhamDesktopAuthCache={token:a,accountId:codexPatchWhamDesktopAuthAccountId(a,i)}}catch{return codexPatchWhamDesktopAuthCache=null}}`,
+    `function codexPatchWhamDesktopAuthAccountId(e,t){try{let n=JSON.parse(Buffer.from(String(e).split(".")[1]??"","base64url").toString("utf8")),r=n?.["https://api.openai.com/auth"]?.chatgpt_account_id;return typeof r===\`string\`?r:typeof t?.tokens?.account_id===\`string\`?t.tokens.account_id:null}catch{return typeof t?.tokens?.account_id===\`string\`?t.tokens.account_id:null}}`,
+    `function codexPatchWhamDesktopAuthHeaders(e,t){try{let n=new URL(e);if(!((n.hostname===\`chatgpt.com\`||n.hostname===\`chat.openai.com\`)&&n.pathname.startsWith(\`/backend-api/wham/\`)))return t;let r=codexPatchWhamDesktopAuthRead();if(r==null)return t;let i={...t};return codexPatchWhamDesktopAuthSetHeader(i,\`Authorization\`,\`Bearer \${r.token}\`),r.accountId&&codexPatchWhamDesktopAuthSetHeader(i,\`ChatGPT-Account-Id\`,r.accountId),codexPatchWhamDesktopAuthSetHeader(i,\`originator\`,\`codex_desktop\`),i}catch{return t}}${WHAM_DESKTOP_AUTH_MARKER}`,
+  ].join("");
+}
+
 function main() {
   const root = process.argv[2];
   if (!root) {
@@ -196,7 +353,7 @@ function main() {
   if (result.pluginAuth === "patched") {
     console.log("[patch] plugin-auth patched: plugin UI no longer follows app-server chat provider auth");
   } else {
-    console.log("[patch] plugin-auth already patched - skipping");
+    console.log(`[patch] plugin-auth ${result.pluginAuth} - skipping`);
   }
   if (result.accountFallback === "patched") {
     console.log("[patch] account fallback patched: plugin auth can use local ChatGPT login while chat keeps the configured provider");
@@ -207,6 +364,21 @@ function main() {
     console.log("[patch] use-auth patched: ChatGPT account id fields are preserved for plugin UI");
   } else if (result.useAuthAccountFields === "already-patched") {
     console.log("[patch] use-auth account fields already patched - skipping");
+  }
+  if (result.pluginsHookLoading === "patched") {
+    console.log("[patch] plugins hook patched: availability probes no longer block list loading");
+  } else if (result.pluginsHookLoading === "already-patched") {
+    console.log("[patch] plugins hook loading gate already patched - skipping");
+  }
+  if (result.pluginsPageLoading === "patched") {
+    console.log("[patch] plugins page patched: only plugin query loading masks plugin list");
+  } else if (result.pluginsPageLoading === "already-patched") {
+    console.log("[patch] plugins page loading gate already patched - skipping");
+  }
+  if (result.whamDesktopAuth === "patched") {
+    console.log("[patch] WHAM desktop auth patched: ChatGPT mobile/setup requests reuse local login");
+  } else if (result.whamDesktopAuth === "already-patched") {
+    console.log("[patch] WHAM desktop auth already patched - skipping");
   }
 }
 
