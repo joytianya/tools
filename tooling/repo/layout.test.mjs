@@ -123,3 +123,30 @@ test("active documentation uses stable bin paths instead of old absolute impleme
     assert.doesNotMatch(readFileSync(path, "utf8"), oldPath, path);
   }
 });
+
+test("the plugin fixer handles help and rejects unknown arguments before preflight", () => {
+  const path = join(root, "apps/codex/desktop-patch/fix-codex-plugins.sh");
+  const content = readFileSync(path, "utf8");
+  const argumentGate = content.indexOf('case "${1:-}" in');
+  const appPreflight = content.indexOf('[[ -d "$APP" ]]');
+
+  assert.ok(argumentGate >= 0, "missing argument gate");
+  assert.ok(appPreflight >= 0, "missing app preflight");
+  assert.ok(argumentGate < appPreflight, "arguments must be handled before app preflight");
+  assert.match(content, /-h\|--help\)/);
+  assert.match(content, /Unknown argument/);
+});
+
+test("public help output names stable bin entrypoints", () => {
+  const skillAuditHelp = execFileSync(join(root, "bin/skill-audit-apply.sh"), ["--help"], {
+    encoding: "utf8",
+  });
+  const remoteSyncHelp = execFileSync(join(root, "bin/codex-sync-remote-ssh-projects.sh"), ["--help"], {
+    encoding: "utf8",
+  });
+
+  assert.match(skillAuditHelp, /bin\/skill-audit-apply\.sh/);
+  assert.doesNotMatch(skillAuditHelp, /node skill-audit\/apply-decisions\.mjs/);
+  assert.match(remoteSyncHelp, /bin\/codex-sync-remote-ssh-projects\.sh/);
+  assert.doesNotMatch(remoteSyncHelp, /codex-sync-remote-ssh-projects\.mjs/);
+});
