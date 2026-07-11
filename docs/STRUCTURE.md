@@ -81,7 +81,7 @@ $TOOLS_HOME/bin/<entry> [arguments...]
 
 ## 兼容与运行时内容
 
-- 根目录 `codex-after-update-fix.sh`、`fix-codex-plugins.sh` 与 `net/ssh_tunnel.sh` 是迁移期兼容入口；新文档和自动任务不得继续引用它们。
+- `net/ssh_tunnel.sh` 是迁移期兼容入口；新文档和自动任务不得继续引用它。
 - 远端 `~/start-codex-daemon.sh` 是部署接口，不是仓库入口，路径保持不变。
 - `.local/`、`tooling/codex/skill-audit/generated/` 和 `runtime/` 只保存可重建或本机专属内容。
 - 历史布局说明保留旧路径是为了审计，不代表当前可用入口；当前结构以本文件和根 README 为准。
