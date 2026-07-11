@@ -1,0 +1,150 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>技能审核</title>
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <div class="app-shell">
+      <aside class="sidebar">
+        <div class="brand">
+          <div class="brand-mark">技</div>
+          <div>
+            <h1>技能审核</h1>
+            <p id="generatedAt">正在加载快照</p>
+          </div>
+        </div>
+
+        <section class="side-section">
+          <h2>决策概览</h2>
+          <div id="summaryGrid" class="summary-grid"></div>
+        </section>
+
+        <section class="side-section">
+          <h2>决策含义</h2>
+          <div class="legend-list">
+            <div><strong>保留</strong><span>不做任何文件或配置修改。</span></div>
+            <div><strong>复核</strong><span>先人工判断，执行脚本会跳过。</span></div>
+            <div><strong>归档/删除</strong><span>先移动到 archive，不永久删除。</span></div>
+            <div><strong>禁用插件</strong><span>改配置关闭插件，不删缓存。</span></div>
+            <div><strong>未决定</strong><span>只是空选择，不会执行。</span></div>
+          </div>
+        </section>
+
+        <section class="side-section">
+          <h2>筛选</h2>
+          <label class="field">
+            <span>搜索</span>
+            <input id="searchInput" type="search" placeholder="名称、描述、路径" />
+          </label>
+          <label class="field">
+            <span>建议</span>
+            <select id="actionFilter">
+              <option value="all">全部建议</option>
+              <option value="keep">保留</option>
+              <option value="review">复核</option>
+              <option value="archive">归档/删除</option>
+              <option value="disable-plugin">禁用插件</option>
+            </select>
+          </label>
+          <label class="field">
+            <span>来源</span>
+            <select id="sourceFilter">
+              <option value="all">全部来源</option>
+              <option value="user">用户技能</option>
+              <option value="system">系统技能</option>
+              <option value="plugin">插件技能</option>
+              <option value="external">外部路径</option>
+            </select>
+          </label>
+          <label class="checkline">
+            <input id="duplicateFilter" type="checkbox" />
+            <span>只看重复项</span>
+          </label>
+        </section>
+
+        <section class="side-section">
+          <h2>决策工具</h2>
+          <button id="acceptSuggested" class="button primary" type="button">采用系统建议</button>
+          <button id="copyDryRun" class="button" type="button">复制预览命令</button>
+          <button id="copyApplySuggested" class="button danger" type="button">复制一键执行命令</button>
+          <button id="exportJson" class="button" type="button">导出决策</button>
+          <button id="copyConfigHints" class="button" type="button">复制配置建议</button>
+          <button id="clearDecisions" class="button subtle" type="button">清空本地决策</button>
+        </section>
+      </aside>
+
+      <main class="main">
+        <header class="topbar">
+          <div>
+            <h2>当前 Codex 技能负载</h2>
+            <p id="snapshotLine">查看当前启用技能、插件影响和清理建议。</p>
+          </div>
+          <div class="topbar-actions">
+            <span id="visibleCount" class="count-pill">显示 0 项</span>
+            <button id="archiveView" class="button" type="button">归档候选</button>
+            <button id="pluginView" class="button" type="button">插件影响</button>
+          </div>
+        </header>
+
+        <section class="strategy-band" id="strategyBand"></section>
+
+        <section class="content-grid">
+          <div class="table-panel">
+            <div class="table-toolbar">
+              <div>
+                <strong>Skills</strong>
+                <span id="tableSubtitle">按建议影响排序</span>
+              </div>
+              <label class="field inline-field">
+                <span>排序</span>
+                <select id="sortSelect">
+                  <option value="impact">影响</option>
+                  <option value="name">名称</option>
+                  <option value="source">来源</option>
+                  <option value="modified">修改时间</option>
+                </select>
+              </label>
+            </div>
+            <div class="table-wrap">
+              <table>
+                <thead>
+                  <tr>
+                    <th>你的决定</th>
+                    <th>技能</th>
+                    <th>系统建议</th>
+                    <th>来源</th>
+                    <th>类别</th>
+                    <th>重复</th>
+                    <th>修改时间</th>
+                  </tr>
+                </thead>
+                <tbody id="skillRows"></tbody>
+              </table>
+            </div>
+          </div>
+
+          <aside class="detail-panel">
+            <div id="detailEmpty" class="empty-state">选择一个技能查看建议原因、路径和元数据。</div>
+            <div id="detailContent" class="detail-content hidden"></div>
+          </aside>
+        </section>
+
+        <section class="plugin-panel">
+          <div class="table-toolbar">
+            <div>
+              <strong>插件影响</strong>
+              <span>高数量插件建议从配置禁用，不建议直接改缓存文件。</span>
+            </div>
+          </div>
+          <div id="pluginList" class="plugin-list"></div>
+        </section>
+      </main>
+    </div>
+
+    <script src="./skills-data.js?v=zh-20260613-batch"></script>
+    <script src="./app.js?v=zh-20260613-batch"></script>
+  </body>
+</html>
