@@ -6,6 +6,8 @@ import { fileURLToPath } from "node:url";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const home = os.homedir();
+const repoRoot = path.resolve(here, "../../..");
+const publicCommand = path.join(repoRoot, "bin", "skill-audit-apply.sh");
 const dataPath = path.join(here, "generated", "skills-data.js");
 const configPath = path.join(home, ".codex", "config.toml");
 const args = process.argv.slice(2);
@@ -54,9 +56,9 @@ function printHelp() {
   console.log(`技能审核执行器
 
 用法：
-  node skill-audit/apply-decisions.mjs --suggested --dry-run
-  node skill-audit/apply-decisions.mjs --suggested --apply --yes
-  node skill-audit/apply-decisions.mjs --decisions ~/Downloads/skill-audit-decisions.json --dry-run
+  ${publicCommand} --suggested --dry-run
+  ${publicCommand} --suggested --apply --yes
+  ${publicCommand} --decisions ~/Downloads/skill-audit-decisions.json --dry-run
 
 安全边界：
   - 保留：不操作

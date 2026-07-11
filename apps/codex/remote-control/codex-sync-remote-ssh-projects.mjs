@@ -17,7 +17,7 @@ const apply = args.has("--apply");
 
 if (args.has("-h") || args.has("--help")) {
   console.log(`Usage:
-  codex-sync-remote-ssh-projects.mjs [--apply] [--dry-run]
+  $TOOLS_HOME/bin/codex-sync-remote-ssh-projects.sh [--apply] [--dry-run]
 
 Reads Codex Desktop's saved SSH remote connections and writes:
   ${CODEX_APP_CONFIG_PATH}

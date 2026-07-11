@@ -15,6 +15,34 @@ SIGN_IDENTITY="${CODEX_PATCH_SIGN_IDENTITY:-Codex Local Patch Signing}"
 log()  { echo "[patch] $*"; }
 die()  { echo "[error] $*" >&2; exit 1; }
 
+usage() {
+    cat <<'EOF'
+Usage:
+  fix-codex-plugins.sh
+
+Patches /Applications/Codex.app and related local plugin metadata. The command
+accepts no operational options and performs the patch immediately when invoked
+without arguments.
+
+Options:
+  -h, --help  Show this help without modifying Codex.app.
+EOF
+}
+
+case "${1:-}" in
+    "")
+        ;;
+    -h|--help)
+        [[ "$#" -eq 1 ]] || die "Unknown argument: ${2:-}"
+        usage
+        exit 0
+        ;;
+    *)
+        usage >&2
+        die "Unknown argument: $1"
+        ;;
+esac
+
 codex_app_process_pids() {
     ps -axo pid=,command= | awk -v app="$APP/Contents/" 'index($0, app) { print $1 }'
 }

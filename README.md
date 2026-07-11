@@ -64,6 +64,7 @@ $TOOLS_HOME/bin/skill-audit-generate.sh
 ## 安全边界
 
 - 一部分命令会修改 `/Applications/Codex.app`、`~/.codex`、LaunchAgent 或远端服务器；执行前先使用可用的 `status`、`--dry-run`、`--diagnose-only` 入口。
+- `fix-codex-plugins.sh` 不带参数时会立即修改 Codex.app；只查看说明时使用 `--help`。
 - 认证文件、access key、生成数据、PID、日志和本机 bundle 不应进入 Git。
 - 远端服务器上的 `~/start-codex-daemon.sh` 是已部署的稳定路径，不随本仓库目录调整而改变。
 - 根目录和 `net/` 下的旧入口仅用于迁移兼容；新调用统一使用 `bin/`。
