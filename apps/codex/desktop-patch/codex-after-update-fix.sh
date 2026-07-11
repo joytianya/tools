@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# Update Codex.app to the latest Sparkle appcast release, then restore local
-# plugin patches and verify the Chrome extension-backed browser connection.
+# Update Codex.app to the latest Sparkle appcast release, then restore compatible
+# legacy plugin patches and verify the Chrome extension-backed browser connection.
 
 set -euo pipefail
 
@@ -44,7 +44,8 @@ Options:
 
 Notes:
   By default this downloads the latest full arm64 zip from the official Codex
-  Sparkle appcast, installs it, then reapplies local plugin patches.
+  Sparkle appcast and installs it. ChatGPT-based builds keep their bundled
+  official plugins; legacy Codex-based builds reapply local plugin patches.
 EOF
 }
 
@@ -172,14 +173,20 @@ quit_codex() {
 }
 
 launch_codex() {
+  local executable app_binary
+  executable="$(defaults read "$APP/Contents/Info" CFBundleExecutable 2>/dev/null || true)"
+  [[ -n "$executable" ]] || die "CFBundleExecutable is missing from $APP/Contents/Info.plist"
+  app_binary="$APP/Contents/MacOS/$executable"
+  [[ -x "$app_binary" ]] || die "App executable not found: $app_binary"
+
   open "$APP" >/dev/null 2>&1 || true
   for _ in 1 2 3 4 5; do
-    pgrep -f "$APP/Contents/MacOS/Codex" >/dev/null 2>&1 && return 0
+    pgrep -f "$app_binary" >/dev/null 2>&1 && return 0
     sleep 1
   done
 
   warn "LaunchServices did not start Codex.app; launching app binary directly."
-  nohup "$APP/Contents/MacOS/Codex" >/tmp/codex-desktop-launch.log 2>&1 &
+  nohup "$app_binary" >/tmp/codex-desktop-launch.log 2>&1 &
 }
 
 latest_appcast_info() {
@@ -273,8 +280,8 @@ install_latest_codex() {
 
   log "Unpacking update..."
   ditto -x -k "$zip_path" "$unpack_dir"
-  new_app="$(find "$unpack_dir" -maxdepth 3 -type d -name 'Codex.app' -print -quit)"
-  [[ -n "$new_app" && -d "$new_app" ]] || die "Downloaded update did not contain Codex.app"
+  new_app="$(find "$unpack_dir" -maxdepth 3 -type d \( -name 'Codex.app' -o -name 'ChatGPT.app' \) -print -quit)"
+  [[ -n "$new_app" && -d "$new_app" ]] || die "Downloaded update did not contain Codex.app or ChatGPT.app"
 
   new_version="$(defaults read "$new_app/Contents/Info" CFBundleShortVersionString 2>/dev/null || true)"
   new_build="$(defaults read "$new_app/Contents/Info" CFBundleVersion 2>/dev/null || true)"
@@ -356,7 +363,7 @@ main() {
   fi
 
   if ((DO_PATCH)); then
-    log "Running Codex plugin patch..."
+    log "Checking Codex plugin patch compatibility..."
     local patch_code=0
     if ((AD_HOC_SIGN)); then
       CODEX_PATCH_SIGN_IDENTITY="-" "$FIX_SCRIPT" || patch_code=$?

@@ -20,6 +20,10 @@ Runs `fix-codex-plugins.sh` which:
 5. Disables Electron's asar integrity validation fuse
 6. Repacks the asar, updates the Info.plist hash, and re-signs the app
 
+This is a legacy-shell repair. When `CFBundleExecutable` is `ChatGPT`, the
+worker keeps the bundled official plugins and exits without changing app.asar
+or browser-client.
+
 ## Usage
 
 ```bash
@@ -31,9 +35,12 @@ Then relaunch Codex.
 
 ## When to re-run
 
-- After any Codex app update (the asar gets replaced with the original)
+- After a legacy `CFBundleExecutable=Codex` app update
 - If the Plugins sidebar item disappears or shows "Please sign in with ChatGPT"
 - If Codex keeps chat on a custom provider but hides Plugins as though ChatGPT auth is missing
+
+Do not use the legacy patch to repair a ChatGPT-based build. Diagnose or
+reinstall its bundled official plugin instead.
 
 ## How to invoke
 

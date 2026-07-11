@@ -1,8 +1,22 @@
-import { existsSync, readdirSync, realpathSync, readFileSync, writeFileSync } from "node:fs";
+import { execFileSync } from "node:child_process";
+import { existsSync, realpathSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
 const MARKER = "/*codex-patch:chrome-native-pipe-fallback*/";
 const TARGET = "scripts/browser-client.mjs";
+const CODEX_APP = process.env.CODEX_APP || "/Applications/Codex.app";
+
+function appExecutable() {
+  try {
+    return execFileSync(
+      "/usr/bin/plutil",
+      ["-extract", "CFBundleExecutable", "raw", "-o", "-", join(CODEX_APP, "Contents/Info.plist")],
+      { encoding: "utf8" },
+    ).trim();
+  } catch {
+    return "";
+  }
+}
 
 function chromePluginRoots() {
   const home = process.env.HOME;
@@ -12,17 +26,10 @@ function chromePluginRoots() {
 
   const roots = [];
   const chromeCache = join(home, ".codex/plugins/cache/openai-bundled/chrome");
-  if (existsSync(chromeCache)) {
-    for (const entry of readdirSync(chromeCache, { withFileTypes: true })) {
-      if (entry.isDirectory() || entry.isSymbolicLink()) {
-        roots.push(join(chromeCache, entry.name));
-      }
-    }
-  }
+  roots.push(join(chromeCache, "latest"));
   roots.push(join(home, ".codex/.tmp/bundled-marketplaces/openai-bundled/plugins/chrome"));
 
-  const codexApp = process.env.CODEX_APP || "/Applications/Codex.app";
-  roots.push(join(codexApp, "Contents/Resources/plugins/openai-bundled/plugins/chrome"));
+  roots.push(join(CODEX_APP, "Contents/Resources/plugins/openai-bundled/plugins/chrome"));
   return roots;
 }
 
@@ -70,7 +77,7 @@ function patchBrowserClient(path) {
       /function ([A-Za-z_$][\w$]*)\(\)\{let e="privileged native pipe bridge is not available; browser-client is not trusted";[\s\S]*?\}function ([A-Za-z_$][\w$]*)\(\)\{let e=globalThis\.nodeRepl\?\.nativePipe;return e==null\|\|typeof e\.createConnection!="function"\?null:e\}/;
     const match = source.match(genericNativePipeBridge);
     if (!match) {
-      throw new Error(`Chrome browser-client shape not recognized: ${path}`);
+      return "unsupported-shape-skipped";
     }
     const [, errorFunctionName, bridgeFunctionName] = match;
     writeFileSync(
@@ -84,6 +91,14 @@ function patchBrowserClient(path) {
 
   writeFileSync(path, source.replace(needle, replacement));
   return "patched";
+}
+
+const executable = appExecutable();
+if (executable !== "Codex") {
+  console.log(
+    `[patch] Legacy Chrome browser-client patch requires CFBundleExecutable=Codex; found ${executable || "unknown"}. Leaving bundled plugins unchanged.`,
+  );
+  process.exit(0);
 }
 
 const targets = uniqueExistingTargets();

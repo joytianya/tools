@@ -6,7 +6,7 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-APP="/Applications/Codex.app"
+APP="${CODEX_APP:-/Applications/Codex.app}"
 ASAR="$APP/Contents/Resources/app.asar"
 PLIST="$APP/Contents/Info.plist"
 WORK="/tmp/codex_patch_$$"
@@ -98,6 +98,11 @@ quit_codex() {
 
 # ── preflight ────────────────────────────────────────────────────────────────
 [[ -d "$APP" ]]  || die "Codex.app not found at $APP"
+APP_EXECUTABLE="$(defaults read "$APP/Contents/Info" CFBundleExecutable 2>/dev/null || true)"
+if [[ "$APP_EXECUTABLE" != "Codex" ]]; then
+    log "Legacy patches require CFBundleExecutable=Codex; found ${APP_EXECUTABLE:-unknown}. Leaving bundled plugins unchanged."
+    exit 0
+fi
 [[ -f "$ASAR" ]] || die "app.asar not found"
 command -v node  >/dev/null 2>&1 || die "node not found (install Node.js)"
 command -v npx   >/dev/null 2>&1 || die "npx not found (install Node.js)"
@@ -145,11 +150,13 @@ PYEOF
 }
 
 patch_openai_bundled_computer_use_mcp() {
-    python3 <<'PYEOF'
+    python3 - "$APP" <<'PYEOF'
 import json
 import pathlib
+import sys
 
 home = pathlib.Path.home()
+app = pathlib.Path(sys.argv[1])
 command = str(
     home
     / ".codex"
@@ -166,7 +173,7 @@ cwd = str(home / ".codex" / "computer-use")
 server = {"command": command, "args": ["mcp"], "cwd": cwd, "enabled": True}
 
 mcp_paths = [
-    pathlib.Path("/Applications/Codex.app/Contents/Resources/plugins/openai-bundled/plugins/computer-use/.mcp.json"),
+    app / "Contents/Resources/plugins/openai-bundled/plugins/computer-use/.mcp.json",
     home / ".codex/plugins/cache/openai-bundled/computer-use/1.0.809/.mcp.json",
     home / ".codex/.tmp/bundled-marketplaces/openai-bundled/plugins/computer-use/.mcp.json",
 ]
