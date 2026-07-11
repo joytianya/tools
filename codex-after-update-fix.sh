@@ -259,7 +259,17 @@ install_latest_codex() {
   else
     log "Downloading ${latest_version}..."
   fi
-  curl -fL --progress-bar -o "$zip_path" "$latest_url"
+  curl \
+    -fL \
+    --progress-bar \
+    --retry 5 \
+    --retry-delay 2 \
+    --retry-all-errors \
+    --speed-limit 1024 \
+    --speed-time 60 \
+    -C - \
+    -o "$zip_path" \
+    "$latest_url"
 
   log "Unpacking update..."
   ditto -x -k "$zip_path" "$unpack_dir"

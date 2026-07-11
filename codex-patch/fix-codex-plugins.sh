@@ -15,6 +15,59 @@ SIGN_IDENTITY="${CODEX_PATCH_SIGN_IDENTITY:-Codex Local Patch Signing}"
 log()  { echo "[patch] $*"; }
 die()  { echo "[error] $*" >&2; exit 1; }
 
+codex_app_process_pids() {
+    ps -axo pid=,command= | awk -v app="$APP/Contents/" 'index($0, app) { print $1 }'
+}
+
+kill_codex_app_processes() {
+    local pids
+
+    pids="$(codex_app_process_pids || true)"
+    [[ -n "$pids" ]] || return 0
+
+    log "Terminating Codex.app helper processes..."
+    while IFS= read -r pid; do
+        [[ -n "$pid" ]] || continue
+        kill -TERM "$pid" 2>/dev/null || true
+    done <<< "$pids"
+
+    for _ in {1..20}; do
+        [[ -z "$(codex_app_process_pids || true)" ]] && return 0
+        sleep 0.25
+    done
+
+    pids="$(codex_app_process_pids || true)"
+    while IFS= read -r pid; do
+        [[ -n "$pid" ]] || continue
+        kill -KILL "$pid" 2>/dev/null || true
+    done <<< "$pids"
+}
+
+quit_codex() {
+    if pgrep -x Codex >/dev/null 2>&1; then
+        log "Quitting Codex..."
+        osascript -e 'quit app "Codex"' 2>/dev/null &
+        local quit_pid=$!
+        for _ in {1..20}; do
+            pgrep -x Codex >/dev/null 2>&1 || break
+            kill -0 "$quit_pid" 2>/dev/null || break
+            sleep 0.1
+        done
+        kill "$quit_pid" 2>/dev/null || true
+        sleep 2
+        if pgrep -x Codex >/dev/null 2>&1; then
+            pkill -TERM -x Codex 2>/dev/null || true
+            sleep 2
+        fi
+        if pgrep -x Codex >/dev/null 2>&1; then
+            pkill -KILL -x Codex 2>/dev/null || true
+            sleep 1
+        fi
+    fi
+
+    kill_codex_app_processes
+}
+
 # ── preflight ────────────────────────────────────────────────────────────────
 [[ -d "$APP" ]]  || die "Codex.app not found at $APP"
 [[ -f "$ASAR" ]] || die "app.asar not found"
@@ -63,18 +116,139 @@ for mcp in cache.glob("oh-my-claudecode/*/.mcp.json"):
 PYEOF
 }
 
+patch_openai_bundled_computer_use_mcp() {
+    python3 <<'PYEOF'
+import json
+import pathlib
+
+home = pathlib.Path.home()
+command = str(
+    home
+    / ".codex"
+    / "computer-use"
+    / "Codex Computer Use.app"
+    / "Contents"
+    / "SharedSupport"
+    / "SkyComputerUseClient.app"
+    / "Contents"
+    / "MacOS"
+    / "SkyComputerUseClient"
+)
+cwd = str(home / ".codex" / "computer-use")
+server = {"command": command, "args": ["mcp"], "cwd": cwd, "enabled": True}
+
+mcp_paths = [
+    pathlib.Path("/Applications/Codex.app/Contents/Resources/plugins/openai-bundled/plugins/computer-use/.mcp.json"),
+    home / ".codex/plugins/cache/openai-bundled/computer-use/1.0.809/.mcp.json",
+    home / ".codex/.tmp/bundled-marketplaces/openai-bundled/plugins/computer-use/.mcp.json",
+]
+
+for path in mcp_paths:
+    if not path.exists():
+        continue
+    try:
+        data = json.loads(path.read_text())
+    except Exception as exc:
+        print(f"[warn]  Could not read {path}: {exc}")
+        continue
+    servers = data.setdefault("mcpServers", {})
+    if servers.get("computer-use") == server:
+        continue
+    servers["computer-use"] = server
+    path.write_text(json.dumps(data, indent=2) + "\n")
+    print(f"[patch] Fixed Computer Use MCP metadata: {path}")
+
+config = home / ".codex/config.toml"
+if config.exists():
+    lines = config.read_text().splitlines()
+    stanza = [
+        "[mcp_servers.computer-use]",
+        f'command = "{command}"',
+        'args = ["mcp"]',
+        f'cwd = "{cwd}"',
+        "enabled = true",
+    ]
+    start = next((i for i, line in enumerate(lines) if line.strip() == "[mcp_servers.computer-use]"), None)
+    if start is None:
+        insert = next((i for i, line in enumerate(lines) if line.startswith("[notice]")), len(lines))
+        if insert > 0 and lines[insert - 1].strip() != "":
+            stanza = ["", *stanza]
+        if insert < len(lines):
+            stanza = [*stanza, ""]
+        new_lines = [*lines[:insert], *stanza, *lines[insert:]]
+    else:
+        end = start + 1
+        while end < len(lines) and not (lines[end].startswith("[") and lines[end].strip().endswith("]")):
+            end += 1
+        replacement = [*stanza]
+        if end < len(lines):
+            replacement.append("")
+        new_lines = [*lines[:start], *replacement, *lines[end:]]
+    if new_lines != lines:
+        config.write_text("\n".join(new_lines) + "\n")
+        print(f"[patch] Fixed Computer Use MCP config: {config}")
+PYEOF
+}
+
 app_bundle_patch_current() {
     local marker
     local required_markers=(
         'codex-patch:auth-account-fields'
-        'codex-patch:plugin-account-fallback'
+        'codex-patch:auth-account-output'
         'codex-patch:plugins-loading'
         'codex-patch:plugins-page-loading'
+        'codex-patch:plugins-catalog-all'
+        'codex-patch:wham-desktop-auth'
+        'codex-patch:desktop-feature-availability'
+        'codex-patch:profile-visible-with-chatgpt'
+        'codex-patch:profile-dropdown-visible'
+        'codex-patch:usage-settings-visible'
+        'codex-patch:locked-use-settings-visible'
+        'codex-patch:locked-use-data-fallback'
+        'codex-patch:appshot-availability'
+        'codex-patch:computer-use-mcp-enabled'
     )
 
     for marker in "${required_markers[@]}"; do
         grep -a -q "$marker" "$ASAR" || return 1
     done
+
+    local feature_flag
+    local required_feature_flags=(
+        'appshotsEnabled:!0'
+        'browserPane:!0'
+        'inAppBrowserUse:!0'
+        'inAppBrowserUseAllowed:!0'
+        'externalBrowserUse:!0'
+        'externalBrowserUseAllowed:!0'
+        'computerUse:!0'
+        'computerUseNodeRepl:!0'
+        'sites:!0'
+        'control:!0'
+        'multiBrowserTabs:!0'
+        'recordAndReplay:!0'
+    )
+
+    for feature_flag in "${required_feature_flags[@]}"; do
+        grep -a -q "$feature_flag" "$ASAR" || return 1
+    done
+
+    if grep -a -q '!==`chatgpt`}export' "$ASAR" &&
+        ! grep -a -q 'codex-patch:plugin-auth-open' "$ASAR"; then
+        return 1
+    fi
+    if grep -a -q '===`chatgpt`/\*codex-patch:profile-visible-with-chatgpt\*/' "$ASAR"; then
+        return 1
+    fi
+    if grep -a -q 'a===`macOS`&&i.available&&n?(0,Q.jsx)(Ve,{})' "$ASAR"; then
+        return 1
+    fi
+    if grep -a -q 'if(i.data?.enabled==null)return null' "$ASAR"; then
+        return 1
+    fi
+    if grep -a -F -q 'command:`./Codex Computer Use.app/Contents/SharedSupport/SkyComputerUseClient.app/Contents/MacOS/SkyComputerUseClient`,args:[`mcp`],cwd:`.`,enabled:!1' "$ASAR"; then
+        return 1
+    fi
 
     if npx @electron/fuses read --app "$APP" 2>/dev/null |
         grep 'EnableEmbeddedAsarIntegrityValidation' |
@@ -86,6 +260,7 @@ app_bundle_patch_current() {
 }
 
 patch_claude_installed_plugins
+patch_openai_bundled_computer_use_mcp
 
 if [[ -f "$SCRIPT_DIR/patch-codex-chrome-browser-use.mjs" ]]; then
     node "$SCRIPT_DIR/patch-codex-chrome-browser-use.mjs"
@@ -98,26 +273,7 @@ if app_bundle_patch_current; then
 fi
 
 # kill running Codex so we can write to the bundle
-if pgrep -x Codex >/dev/null 2>&1; then
-    log "Quitting Codex..."
-    osascript -e 'quit app "Codex"' 2>/dev/null &
-    QUIT_PID=$!
-    for _ in {1..20}; do
-        pgrep -x Codex >/dev/null 2>&1 || break
-        kill -0 "$QUIT_PID" 2>/dev/null || break
-        sleep 0.1
-    done
-    kill "$QUIT_PID" 2>/dev/null || true
-    sleep 2
-    if pgrep -x Codex >/dev/null 2>&1; then
-        pkill -TERM -x Codex 2>/dev/null || true
-        sleep 2
-    fi
-    if pgrep -x Codex >/dev/null 2>&1; then
-        pkill -KILL -x Codex 2>/dev/null || true
-        sleep 1
-    fi
-fi
+quit_codex
 
 # ── extract ──────────────────────────────────────────────────────────────────
 log "Extracting app.asar → $WORK"
@@ -535,7 +691,7 @@ else
 fi
 
 # ── validation: fail before repacking if a patched module is invalid ─────────
-CORE_PATCHED_MODULES=$(grep -rlE 'codex-patch:plugin-auth-open|codex-patch:plugin-account-fallback|codex-patch:auth-account-fields' "$WORK/webview/assets/"*.js 2>/dev/null || true)
+CORE_PATCHED_MODULES=$(grep -rlE 'codex-patch:plugin-auth-open|codex-patch:plugin-account-fallback|codex-patch:auth-account-fields|codex-patch:usage-settings-visible|codex-patch:local-usage-settings-visible|codex-patch:local-desktop-settings-visible|codex-patch:locked-use-settings-visible|codex-patch:locked-use-data-fallback|codex-patch:appshot-availability|codex-patch:plugins-catalog-all' "$WORK/webview/assets/"*.js 2>/dev/null || true)
 if [[ -n "$CORE_PATCHED_MODULES" ]]; then
     log "Validating patched auth/provider modules syntax"
     while IFS= read -r module; do
@@ -544,7 +700,7 @@ if [[ -n "$CORE_PATCHED_MODULES" ]]; then
     done <<< "$CORE_PATCHED_MODULES"
 fi
 
-MAIN_PATCHED_MODULE=$(grep -rl 'codex-patch:wham-desktop-auth' "$WORK/.vite/build/"main-*.js 2>/dev/null | head -1 || true)
+MAIN_PATCHED_MODULE=$(grep -rlE 'codex-patch:wham-desktop-auth|codex-patch:desktop-feature-availability|codex-patch:desktop-auth-token-fallback|codex-patch:computer-use-mcp-enabled' "$WORK/.vite/build/"main-*.js 2>/dev/null | head -1 || true)
 if [[ -n "$MAIN_PATCHED_MODULE" ]]; then
     log "Validating patched main module syntax"
     node --check "$MAIN_PATCHED_MODULE" >/dev/null
