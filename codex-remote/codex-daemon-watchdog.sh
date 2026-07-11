@@ -5,12 +5,15 @@ set -u
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 RESTART_SCRIPT="${RESTART_SCRIPT:-$SCRIPT_DIR/codex-restart-daemons.sh}"
+SYNC_AUTH_SCRIPT="${SYNC_AUTH_SCRIPT:-$SCRIPT_DIR/codex-sync-auth-to-remotes.sh}"
+CODE_SIGN_CLONE_CLEANUP_SCRIPT="${CODE_SIGN_CLONE_CLEANUP_SCRIPT:-$SCRIPT_DIR/codex-clean-code-sign-clones.sh}"
 CODEX_BIN="${CODEX_BIN:-codex}"
 HOSTS_FILE="${CODEX_REMOTE_HOSTS_FILE:-$SCRIPT_DIR/codex-remote-hosts.txt}"
 DEFAULT_HOSTS="bwg-server-zxw ali-server-zxw"
 FILE_HOSTS="$(awk 'NF && $1 !~ /^#/ { print $1 }' "$HOSTS_FILE" 2>/dev/null | xargs 2>/dev/null || true)"
 HOSTS="${CODEX_WATCHDOG_HOSTS:-${FILE_HOSTS:-$DEFAULT_HOSTS}}"
 SSH_CONNECT_TIMEOUT="${SSH_CONNECT_TIMEOUT:-12}"
+SSH_RETRIES="${SSH_RETRIES:-3}"
 LOCK_DIR="${TMPDIR:-/tmp}/codex-daemon-watchdog.lock"
 CODEX_HOME_DIR="${CODEX_HOME:-$HOME/.codex}"
 CLOUD_PROXY_URL="${CODEX_WATCHDOG_HTTP_PROXY:-http://127.0.0.1:7890}"
@@ -23,6 +26,7 @@ CODEX_APP_NAME="${CODEX_APP_NAME:-Codex}"
 CODEX_APP_PATH="${CODEX_APP_PATH:-/Applications/Codex.app}"
 LOCAL_DISPLAY_NAME="${CODEX_WATCHDOG_LOCAL_DISPLAY_NAME:-mac-mini}"
 MANAGE_LOCAL_DAEMON="${CODEX_WATCHDOG_MANAGE_LOCAL_DAEMON:-0}"
+AUTO_SYNC_REMOTE_AUTH="${CODEX_WATCHDOG_AUTO_SYNC_REMOTE_AUTH:-1}"
 TUNNEL_LABEL="${CODEX_TUNNEL_LABEL:-com.matrix.ssh-tunnel}"
 TUNNEL_PLIST="${CODEX_TUNNEL_PLIST:-$HOME/Library/LaunchAgents/com.matrix.ssh-tunnel.plist}"
 CLOUD_ENV_JSON=""
@@ -35,6 +39,30 @@ log() {
 
 warn() {
   printf '[%s] WARN: %s\n' "$(date '+%Y-%m-%d %H:%M:%S')" "$*" >&2
+}
+
+ssh_base() {
+  local status=0
+  local attempt=1
+
+  while [ "$attempt" -le "$SSH_RETRIES" ]; do
+    ssh \
+      -o BatchMode=yes \
+      -o ClearAllForwardings=yes \
+      -o ConnectTimeout="$SSH_CONNECT_TIMEOUT" \
+      -o ConnectionAttempts=2 \
+      "$@"
+    status=$?
+
+    # 255 is the OpenSSH transport error used for transient resets/timeouts.
+    [ "$status" -eq 255 ] || return "$status"
+    [ "$attempt" -lt "$SSH_RETRIES" ] || return "$status"
+
+    sleep "$((attempt * 2))"
+    attempt=$((attempt + 1))
+  done
+
+  return "$status"
 }
 
 acquire_lock() {
@@ -136,6 +164,13 @@ fix_local() {
   "$RESTART_SCRIPT" --local-only --no-verify
 }
 
+cleanup_code_sign_clones() {
+  [ "$(uname -s)" = "Darwin" ] || return 0
+  [ -x "$CODE_SIGN_CLONE_CLEANUP_SCRIPT" ] || return 0
+
+  "$CODE_SIGN_CLONE_CLEANUP_SCRIPT" --quiet || warn "Codex code-sign clone cleanup failed."
+}
+
 stop_local_daemon_if_running() {
   local pids
 
@@ -164,11 +199,7 @@ fix_desktop() {
 
 remote_status() {
   local host="$1"
-  ssh \
-    -o BatchMode=yes \
-    -o ClearAllForwardings=yes \
-    -o ConnectTimeout="$SSH_CONNECT_TIMEOUT" \
-    "$host" '$HOME/start-codex-daemon.sh status'
+  ssh_base "$host" '$HOME/start-codex-daemon.sh status'
 }
 
 remote_healthy() {
@@ -467,11 +498,7 @@ host_needs_proxy_tunnel() {
 remote_proxy_healthy() {
   local host="$1"
 
-  ssh \
-    -o BatchMode=yes \
-    -o ClearAllForwardings=yes \
-    -o ConnectTimeout="$SSH_CONNECT_TIMEOUT" \
-    "$host" 'if command -v curl >/dev/null 2>&1; then
+  ssh_base "$host" 'if command -v curl >/dev/null 2>&1; then
       code="$(curl -sS -o /dev/null -w "%{http_code}" --connect-timeout 10 --max-time 20 -x http://127.0.0.1:7890 "https://chatgpt.com/backend-api/codex/remote/control/environments?limit=1" 2>/dev/null)" || exit 1
       case "$code" in [234][0-9][0-9]) exit 0 ;; *) exit 1 ;; esac
     fi
@@ -519,11 +546,137 @@ fix_remote() {
   local host="$1"
 
   log "$host unhealthy; restarting remote daemon."
-  ssh \
-    -o BatchMode=yes \
-    -o ClearAllForwardings=yes \
-    -o ConnectTimeout="$SSH_CONNECT_TIMEOUT" \
-    "$host" '$HOME/start-codex-daemon.sh restart'
+  ssh_base "$host" '$HOME/start-codex-daemon.sh restart'
+}
+
+remote_auth_invalidated() {
+  local host="$1"
+  local use_remote_proxy=0
+  local output
+
+  [ "$AUTO_SYNC_REMOTE_AUTH" -eq 1 ] || return 1
+  [ "$CLOUD_ENV_READY" -eq 1 ] || return 1
+
+  if host_needs_proxy_tunnel "$host"; then
+    use_remote_proxy=1
+  fi
+
+  output="$(
+    ssh \
+      -o BatchMode=yes \
+      -o ClearAllForwardings=yes \
+      -o ConnectTimeout="$SSH_CONNECT_TIMEOUT" \
+      -o ConnectionAttempts=2 \
+      "$host" "USE_REMOTE_PROXY=$use_remote_proxy bash -s" <<'REMOTE_AUTH_CHECK'
+set -u
+
+if [ -r "$HOME/proxy_config.sh" ]; then
+  . "$HOME/proxy_config.sh" on >/dev/null 2>&1 || true
+fi
+
+if command -v jq >/dev/null 2>&1; then
+  token="$(jq -r '.tokens.access_token // empty' "$HOME/.codex/auth.json" 2>/dev/null)"
+else
+  token="$(sed -n -E 's/.*"access_token"[[:space:]]*:[[:space:]]*"([^"]*)".*/\1/p' "$HOME/.codex/auth.json" 2>/dev/null | head -n 1)"
+fi
+
+[ -n "$token" ] && [ "$token" != "null" ] || exit 1
+
+tmp="$(mktemp "${TMPDIR:-/tmp}/codex-remote-auth.XXXXXX")" || exit 1
+curl_args=(-sS --connect-timeout 8 --max-time 20 -o "$tmp" -w '%{http_code}')
+if [ "${USE_REMOTE_PROXY:-0}" -eq 1 ]; then
+  curl_args+=(-x http://127.0.0.1:7890)
+fi
+
+code="$(curl "${curl_args[@]}" \
+  -H "Authorization: Bearer $token" \
+  'https://chatgpt.com/backend-api/codex/remote/control/environments?limit=1' 2>/dev/null || true)"
+
+if [ "$code" = "401" ] && grep -q '"code"[[:space:]]*:[[:space:]]*"token_invalidated"' "$tmp"; then
+  rm -f "$tmp"
+  printf 'token_invalidated\n'
+  exit 0
+fi
+
+rm -f "$tmp"
+exit 1
+REMOTE_AUTH_CHECK
+  )" || return 1
+
+  [ "$output" = "token_invalidated" ]
+}
+
+remote_auth_refresh_failed() {
+  local host="$1"
+
+  [ "$AUTO_SYNC_REMOTE_AUTH" -eq 1 ] || return 1
+
+  ssh_base "$host" '
+    log_file="$HOME/.codex/app-server-daemon/app-server.stderr.log"
+    if [ -r "$log_file" ] &&
+       find "$log_file" -mmin -20 -print -quit 2>/dev/null | grep -q . &&
+       tail -n 240 "$log_file" | grep -Eq "refresh_token_reused|refresh token was already used|Please log out and sign in again|token_invalidated|token_expired|Provided authentication token is expired|access token could not be refreshed"; then
+      exit 0
+    fi
+
+    logs_db="$HOME/.codex/logs_2.sqlite"
+    [ -r "$logs_db" ] || exit 1
+    command -v sqlite3 >/dev/null 2>&1 || exit 1
+
+    sqlite3 "$logs_db" "
+      select 1
+      from logs
+      where ts >= strftime('\''%s'\'','\''now'\'','\''-20 minutes'\'')
+        and (
+          feedback_log_body like '\''%refresh_token_reused%'\''
+          or feedback_log_body like '\''%refresh token was already used%'\''
+          or feedback_log_body like '\''%Please log out and sign in again%'\''
+          or feedback_log_body like '\''%token_invalidated%'\''
+          or feedback_log_body like '\''%token_expired%'\''
+          or feedback_log_body like '\''%Provided authentication token is expired%'\''
+          or feedback_log_body like '\''%access token could not be refreshed%'\''
+        )
+      limit 1;
+    " 2>/dev/null | grep -q 1
+  ' >/dev/null 2>&1
+}
+
+remote_missing_prerequisites() {
+  local host="$1"
+  local status
+
+  ssh_base "$host" '
+      [ -x "$HOME/start-codex-daemon.sh" ] || exit 10
+      [ -x "$HOME/.codex/packages/standalone/current/codex" ] ||
+      [ -x "$HOME/.local/bin/codex" ] ||
+      command -v codex >/dev/null 2>&1 || exit 11
+    ' >/dev/null 2>&1
+  status=$?
+
+  case "$status" in
+    10|11)
+      return 0
+      ;;
+    *)
+      return 1
+      ;;
+  esac
+}
+
+sync_remote_auth_from_local() {
+  local host="$1"
+  local reason="${2:-remote ChatGPT token is invalidated}"
+
+  [ "$AUTO_SYNC_REMOTE_AUTH" -eq 1 ] || return 1
+  [ "$CLOUD_ENV_READY" -eq 1 ] || return 1
+
+  if [ ! -x "$SYNC_AUTH_SCRIPT" ]; then
+    warn "Remote auth sync script is not executable: $SYNC_AUTH_SCRIPT"
+    return 1
+  fi
+
+  log "$host $reason; syncing local auth and re-enrolling."
+  "$SYNC_AUTH_SCRIPT" --host "$host"
 }
 
 local_desktop_proxy_pids_for_host() {
@@ -577,11 +730,7 @@ fix_remote_reenroll() {
   quoted_env="$(shell_quote "$env_id")"
 
   log "$host cloud environment is stale/offline; clearing enrollment and restarting remote daemon."
-  ssh \
-    -o BatchMode=yes \
-    -o ClearAllForwardings=yes \
-    -o ConnectTimeout="$SSH_CONNECT_TIMEOUT" \
-    "$host" "CODEX_REMOTE_SERVER_NAME=$quoted_host CODEX_REMOTE_ENVIRONMENT_ID=$quoted_env \"\$HOME/start-codex-daemon.sh\" reenroll"
+  ssh_base "$host" "CODEX_REMOTE_SERVER_NAME=$quoted_host CODEX_REMOTE_ENVIRONMENT_ID=$quoted_env \"\$HOME/start-codex-daemon.sh\" reenroll"
 }
 
 check_remote() {
@@ -591,6 +740,27 @@ check_remote() {
 
   out="$(remote_status "$host" 2>&1)" || {
     warn "$host status check failed: $out"
+    if remote_auth_refresh_failed "$host"; then
+      if sync_remote_auth_from_local "$host" "has a reused/invalid refresh token"; then
+        refresh_local_desktop_proxy "$host"
+        return
+      fi
+      warn "$host remote auth sync failed; falling back to daemon restart."
+    fi
+    if remote_missing_prerequisites "$host"; then
+      if sync_remote_auth_from_local "$host" "is missing Codex CLI or the remote daemon helper"; then
+        refresh_local_desktop_proxy "$host"
+        return
+      fi
+      warn "$host prerequisite sync failed; falling back to daemon restart."
+    fi
+    if remote_auth_invalidated "$host"; then
+      if sync_remote_auth_from_local "$host"; then
+        refresh_local_desktop_proxy "$host"
+        return
+      fi
+      warn "$host remote auth sync failed; falling back to daemon restart."
+    fi
     if fix_remote "$host"; then
       refresh_local_desktop_proxy "$host"
     fi
@@ -599,6 +769,20 @@ check_remote() {
 
   if ! remote_healthy "$host" "$out"; then
     warn "$host daemon is running without an active Codex remote-control connection."
+    if remote_auth_refresh_failed "$host"; then
+      if sync_remote_auth_from_local "$host" "has a reused/invalid refresh token"; then
+        refresh_local_desktop_proxy "$host"
+        return
+      fi
+      warn "$host remote auth sync failed; falling back to daemon restart."
+    fi
+    if remote_auth_invalidated "$host"; then
+      if sync_remote_auth_from_local "$host"; then
+        refresh_local_desktop_proxy "$host"
+        return
+      fi
+      warn "$host remote auth sync failed; falling back to daemon restart."
+    fi
     if fix_remote "$host"; then
       refresh_local_desktop_proxy "$host"
     fi
@@ -614,6 +798,21 @@ check_remote() {
   fi
 
   warn "$host has a local daemon/TCP connection, but cloud does not show env '${env_id:-unknown}' online."
+  if remote_auth_refresh_failed "$host"; then
+    if sync_remote_auth_from_local "$host" "has a reused/invalid refresh token"; then
+      refresh_local_desktop_proxy "$host"
+      return
+    fi
+    warn "$host remote auth sync failed; falling back to re-enroll."
+  fi
+  if remote_auth_invalidated "$host"; then
+    if sync_remote_auth_from_local "$host"; then
+      refresh_local_desktop_proxy "$host"
+      return
+    fi
+    warn "$host remote auth sync failed; falling back to re-enroll."
+  fi
+
   if fix_remote_reenroll "$host" "$env_id"; then
     refresh_local_desktop_proxy "$host"
   fi
@@ -622,6 +821,7 @@ check_remote() {
 main() {
   acquire_lock
   load_local_runtime_env
+  cleanup_code_sign_clones
   repair_local_proxy || true
   load_cloud_environments || true
 

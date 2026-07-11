@@ -343,12 +343,12 @@ show_versions() {
 
 show_processes() {
   log "Codex-related processes:"
-  pgrep -fl 'Codex.app/Contents/MacOS/Codex|Codex.app/Contents/Resources/codex app-server --analytics-default-enabled|codex app-server --remote-control' || true
+  ps -axo pid=,command= | rg 'Codex.app/Contents/MacOS/Codex|Codex.app/Contents/Resources/codex app-server --analytics-default-enabled|codex app-server --remote-control' | rg -v ' rg ' || true
 }
 
 show_desktop_app_server_env_status() {
   local pid
-  pid="$(pgrep -f 'Codex.app/Contents/Resources/codex app-server --analytics-default-enabled' | head -n 1 || true)"
+  pid="$(ps -axo pid=,command= | rg 'Codex.app/Contents/Resources/codex app-server --analytics-default-enabled' | rg -v ' rg ' | awk 'NR == 1 { print $1 }' || true)"
   if [ -z "$pid" ]; then
     warn "Codex Desktop app-server is not running."
     return 0
@@ -693,11 +693,22 @@ verify_plugin_local_state() {
   local patch_test="/Users/matrix/projects/dev/tools/codex-patch/test-patch-codex-plugins.mjs"
   local required_markers=(
     "codex-patch:auth-account-fields"
+    "codex-patch:auth-account-output"
+    "codex-patch:account-read-file-methods"
     "codex-patch:plugin-account-fallback"
-    "codex-patch:plugin-auth-open"
+    "codex-patch:prefer-local-chatgpt-account"
     "codex-patch:plugins-loading"
     "codex-patch:plugins-page-loading"
     "codex-patch:wham-desktop-auth"
+    "codex-patch:desktop-feature-availability"
+    "codex-patch:desktop-auth-token-fallback"
+    "codex-patch:profile-visible-with-chatgpt"
+    "codex-patch:profile-dropdown-visible"
+    "codex-patch:usage-settings-visible"
+    "codex-patch:local-usage-settings-visible"
+    "codex-patch:local-desktop-settings-visible"
+    "codex-patch:locked-use-settings-visible"
+    "codex-patch:locked-use-data-fallback"
   )
 
   log "Checking Codex Desktop plugin local state."

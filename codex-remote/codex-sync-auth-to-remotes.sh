@@ -13,6 +13,8 @@ DEFAULT_HOSTS="bwg-server-zxw ali-server-zxw"
 FILE_HOSTS="$(awk 'NF && $1 !~ /^#/ { print $1 }' "$HOSTS_FILE" 2>/dev/null | xargs 2>/dev/null || true)"
 HOSTS="${CODEX_REMOTE_HOSTS:-${FILE_HOSTS:-$DEFAULT_HOSTS}}"
 SSH_CONNECT_TIMEOUT="${SSH_CONNECT_TIMEOUT:-12}"
+SSH_RETRIES="${SSH_RETRIES:-3}"
+REMOTE_INSTALL_TIMEOUT_SECONDS="${CODEX_REMOTE_INSTALL_TIMEOUT_SECONDS:-180}"
 CLOUD_PROXY_URL="${CODEX_REMOTE_HTTP_PROXY:-http://127.0.0.1:7890}"
 USE_PROXY=1
 VALIDATE_CLOUD=1
@@ -38,6 +40,15 @@ die() {
   exit 1
 }
 
+validate_install_timeout() {
+  case "$REMOTE_INSTALL_TIMEOUT_SECONDS" in
+    ""|*[!0-9]*)
+      die "--install-timeout must be a positive integer"
+      ;;
+  esac
+  [ "$REMOTE_INSTALL_TIMEOUT_SECONDS" -gt 0 ] || die "--install-timeout must be greater than 0"
+}
+
 usage() {
   cat <<EOF
 Usage:
@@ -54,6 +65,7 @@ Options:
   --no-reenroll           Copy auth only; do not re-enroll remote daemons.
   --no-install            Fail if Codex is missing on a remote host.
   --no-reverse-proxy      Do not open a temporary reverse proxy if install fails.
+  --install-timeout SEC   Remote Codex install timeout before retrying. Default: $REMOTE_INSTALL_TIMEOUT_SECONDS
   -h, --help              Show this help.
 
 Examples:
@@ -124,6 +136,17 @@ while [ "$#" -gt 0 ]; do
     --no-reverse-proxy)
       REVERSE_PROXY_ON_INSTALL=0
       shift
+      ;;
+    --install-timeout)
+      [ "$#" -ge 2 ] || die "--install-timeout requires seconds"
+      case "$2" in
+        ""|*[!0-9]*)
+          die "--install-timeout must be a positive integer"
+          ;;
+      esac
+      [ "$2" -gt 0 ] || die "--install-timeout must be greater than 0"
+      REMOTE_INSTALL_TIMEOUT_SECONDS="$2"
+      shift 2
       ;;
     -h|--help)
       usage
@@ -205,18 +228,48 @@ validate_local_cloud_auth() {
 }
 
 ssh_base() {
-  ssh \
-    -o BatchMode=yes \
-    -o ClearAllForwardings=yes \
-    -o ConnectTimeout="$SSH_CONNECT_TIMEOUT" \
-    "$@"
+  local status=0
+  local attempt=1
+
+  while [ "$attempt" -le "$SSH_RETRIES" ]; do
+    ssh \
+      -o BatchMode=yes \
+      -o ClearAllForwardings=yes \
+      -o ConnectTimeout="$SSH_CONNECT_TIMEOUT" \
+      -o ConnectionAttempts=2 \
+      "$@"
+    status=$?
+
+    [ "$status" -eq 255 ] || return "$status"
+    [ "$attempt" -lt "$SSH_RETRIES" ] || return "$status"
+
+    sleep "$((attempt * 2))"
+    attempt=$((attempt + 1))
+  done
+
+  return "$status"
 }
 
 scp_base() {
-  scp \
-    -o BatchMode=yes \
-    -o ConnectTimeout="$SSH_CONNECT_TIMEOUT" \
-    "$@"
+  local status=0
+  local attempt=1
+
+  while [ "$attempt" -le "$SSH_RETRIES" ]; do
+    scp \
+      -o BatchMode=yes \
+      -o ConnectTimeout="$SSH_CONNECT_TIMEOUT" \
+      -o ConnectionAttempts=2 \
+      "$@"
+    status=$?
+
+    [ "$status" -eq 255 ] || return "$status"
+    [ "$attempt" -lt "$SSH_RETRIES" ] || return "$status"
+
+    sleep "$((attempt * 2))"
+    attempt=$((attempt + 1))
+  done
+
+  return "$status"
 }
 
 cleanup_reverse_proxies() {
@@ -248,20 +301,27 @@ copy_remote_helper() {
 
   [ -r "$REMOTE_START_SCRIPT" ] || die "Missing remote daemon helper: $REMOTE_START_SCRIPT"
   log "$host: installing remote daemon helper."
-  scp_base "$REMOTE_START_SCRIPT" "$host:~/start-codex-daemon.sh" >/dev/null
-  ssh_base "$host" 'chmod +x "$HOME/start-codex-daemon.sh"'
+  scp_base "$REMOTE_START_SCRIPT" "$host:~/start-codex-daemon.sh" >/dev/null || return
+  ssh_base "$host" 'chmod +x "$HOME/start-codex-daemon.sh"' || return
 }
 
 remote_install_codex() {
   local host="$1"
   local use_remote_proxy="$2"
   local proxy_prefix=""
+  local install_timeout
 
   if [ "$use_remote_proxy" -eq 1 ]; then
     proxy_prefix="HTTP_PROXY=http://127.0.0.1:$REVERSE_PROXY_REMOTE_PORT HTTPS_PROXY=http://127.0.0.1:$REVERSE_PROXY_REMOTE_PORT http_proxy=http://127.0.0.1:$REVERSE_PROXY_REMOTE_PORT https_proxy=http://127.0.0.1:$REVERSE_PROXY_REMOTE_PORT npm_config_proxy=http://127.0.0.1:$REVERSE_PROXY_REMOTE_PORT npm_config_https_proxy=http://127.0.0.1:$REVERSE_PROXY_REMOTE_PORT"
   fi
 
-  ssh_base "$host" "$proxy_prefix bash -s" <<'REMOTE_INSTALL'
+  install_timeout="$(shell_quote "$REMOTE_INSTALL_TIMEOUT_SECONDS")"
+  ssh \
+    -o BatchMode=yes \
+    -o ClearAllForwardings=yes \
+    -o ConnectTimeout="$SSH_CONNECT_TIMEOUT" \
+    -o ConnectionAttempts=2 \
+    "$host" "$proxy_prefix CODEX_REMOTE_INSTALL_TIMEOUT_SECONDS=$install_timeout bash -s" <<'REMOTE_INSTALL'
 set -euo pipefail
 
 mkdir -p "$HOME/.local/bin" "$HOME/.local/lib"
@@ -273,16 +333,46 @@ if [ -x "$HOME/.codex/packages/standalone/current/codex" ] ||
   exit 0
 fi
 
+run_install() {
+  local install_pid
+  local elapsed=0
+  local timeout_seconds="${CODEX_REMOTE_INSTALL_TIMEOUT_SECONDS:-180}"
+
+  if command -v timeout >/dev/null 2>&1; then
+    timeout "$timeout_seconds" "$@"
+  else
+    "$@" &
+    install_pid=$!
+
+    while kill -0 "$install_pid" 2>/dev/null; do
+      if [ "$elapsed" -ge "$timeout_seconds" ]; then
+        kill "$install_pid" 2>/dev/null || true
+        sleep 2
+        kill -9 "$install_pid" 2>/dev/null || true
+        wait "$install_pid" 2>/dev/null || true
+        return 124
+      fi
+
+      sleep 1
+      elapsed=$((elapsed + 1))
+    done
+
+    wait "$install_pid"
+  fi
+}
+
 if command -v npm >/dev/null 2>&1; then
   npm config set prefix "$HOME/.local" >/dev/null
-  npm install -g @openai/codex
+  run_install npm install -g @openai/codex
 elif command -v pnpm >/dev/null 2>&1; then
-  PNPM_HOME="$HOME/.local" pnpm add -g @openai/codex
+  export PNPM_HOME="$HOME/.local"
+  run_install pnpm add -g @openai/codex
 elif command -v bun >/dev/null 2>&1; then
-  BUN_INSTALL="$HOME/.local" bun add -g @openai/codex
+  export BUN_INSTALL="$HOME/.local"
+  run_install bun add -g @openai/codex
 elif command -v yarn >/dev/null 2>&1; then
   yarn global dir >/dev/null 2>&1 || true
-  yarn global add @openai/codex
+  run_install yarn global add @openai/codex
 else
   echo "No supported JS package manager found. Install npm/pnpm/bun/yarn or Codex manually." >&2
   exit 127
@@ -324,11 +414,16 @@ start_reverse_proxy() {
 ensure_remote_codex() {
   local host="$1"
 
-  copy_remote_helper "$host"
+  copy_remote_helper "$host" || return
 
   if remote_has_codex "$host"; then
     log "$host: Codex is already installed."
     return 0
+  fi
+  local codex_status=$?
+  if [ "$codex_status" -eq 255 ]; then
+    warn "$host: SSH transport failed while checking Codex installation."
+    return "$codex_status"
   fi
 
   [ "$INSTALL_MISSING" -eq 1 ] || die "$host: Codex is missing and --no-install was used."
@@ -351,12 +446,12 @@ sync_host() {
   local quoted_host
 
   log "$host: preparing ~/.codex."
-  ssh_base "$host" 'mkdir -p "$HOME/.codex" && chmod 700 "$HOME/.codex"'
+  ssh_base "$host" 'mkdir -p "$HOME/.codex" && chmod 700 "$HOME/.codex"' || return
 
-  ensure_remote_codex "$host"
+  ensure_remote_codex "$host" || return
 
   log "$host: copying auth.json."
-  scp_base "$AUTH_FILE" "$host:$remote_tmp" >/dev/null
+  scp_base "$AUTH_FILE" "$host:$remote_tmp" >/dev/null || return
 
   log "$host: installing auth.json with backup."
   ssh_base "$host" "set -e
@@ -365,26 +460,27 @@ sync_host() {
     fi
     command mv -f \"\$HOME/$remote_tmp\" \"\$HOME/.codex/auth.json\"
     command chmod 600 \"\$HOME/.codex/auth.json\"
-  "
+  " || return
 
   log "$host: login status."
   ssh_base "$host" 'if [ -x "$HOME/.codex/packages/standalone/current/codex" ]; then
       "$HOME/.codex/packages/standalone/current/codex" login status
     else
       codex login status
-    fi'
+    fi' || return
 
   [ "$REENROLL" -eq 1 ] || return 0
 
   quoted_host="$(shell_quote "$host")"
   log "$host: re-enrolling remote-control daemon."
-  ssh_base "$host" "CODEX_REMOTE_SERVER_NAME=$quoted_host \"\$HOME/start-codex-daemon.sh\" reenroll"
+  ssh_base "$host" "CODEX_REMOTE_SERVER_NAME=$quoted_host \"\$HOME/start-codex-daemon.sh\" reenroll" || return
 }
 
 main() {
   trap cleanup_reverse_proxies EXIT INT TERM
 
   [ -n "$HOSTS" ] || die "No remote hosts configured."
+  validate_install_timeout
 
   require_local_auth
   validate_local_cloud_auth

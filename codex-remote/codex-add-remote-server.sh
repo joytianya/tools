@@ -7,6 +7,7 @@ SCRIPT_NAME="$(basename "$0")"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 HOSTS_FILE="${CODEX_REMOTE_HOSTS_FILE:-$SCRIPT_DIR/codex-remote-hosts.txt}"
 REMOTE_START_SCRIPT="$SCRIPT_DIR/codex-remote-start-daemon.sh"
+ACCOUNT_SWITCH_SCRIPT="$SCRIPT_DIR/codex-remote-account-switch.sh"
 SYNC_SCRIPT="$SCRIPT_DIR/codex-sync-remote-ssh-projects.mjs"
 SSH_CONNECT_TIMEOUT="${SSH_CONNECT_TIMEOUT:-12}"
 
@@ -16,7 +17,9 @@ DO_COPY=1
 DO_START=1
 DO_APPLY=1
 DO_KICK_WATCHDOG=1
+DO_SYNC=1
 PROJECTS=()
+SYNC_OPTIONS=()
 
 log() {
   printf '[%s] %s\n' "$(date '+%H:%M:%S')" "$*"
@@ -42,6 +45,11 @@ Options:
                        Default: $HOSTS_FILE
   --no-copy            Do not copy /home/<user>/start-codex-daemon.sh.
   --no-start           Do not restart the remote daemon.
+  --no-sync            Do not sync auth, install missing Codex, or re-enroll first.
+  --no-install         Fail if Codex is missing on the remote host.
+  --no-reverse-proxy   Do not open a temporary reverse proxy if install fails.
+  --install-timeout SEC
+                       Remote Codex install timeout before retrying.
   --no-apply           Do not ask Codex.app to apply config.
   --no-watchdog-kick   Do not kick the watchdog after adding.
   -h, --help           Show this help.
@@ -53,8 +61,7 @@ Examples:
 Prerequisites:
   1. The SSH alias must already exist in ~/.ssh/config.
   2. SSH key login must work without a password prompt.
-  3. If Codex CLI is missing, run:
-       codex-remote-account-switch.sh sync-remotes --host <ssh-alias>
+  3. Local Codex ChatGPT login must be valid unless --no-sync is used.
 EOF
 }
 
@@ -77,6 +84,29 @@ while [ "$#" -gt 0 ]; do
     --no-start)
       DO_START=0
       shift
+      ;;
+    --no-sync)
+      DO_SYNC=0
+      shift
+      ;;
+    --no-install)
+      SYNC_OPTIONS+=(--no-install)
+      shift
+      ;;
+    --no-reverse-proxy)
+      SYNC_OPTIONS+=(--no-reverse-proxy)
+      shift
+      ;;
+    --install-timeout)
+      [ "$#" -ge 2 ] || die "--install-timeout requires seconds"
+      case "$2" in
+        ""|*[!0-9]*)
+          die "--install-timeout must be a positive integer"
+          ;;
+      esac
+      [ "$2" -gt 0 ] || die "--install-timeout must be greater than 0"
+      SYNC_OPTIONS+=(--install-timeout "$2")
+      shift 2
       ;;
     --no-apply)
       DO_APPLY=0
@@ -240,6 +270,9 @@ kick_watchdog() {
 
 main() {
   require_file "$SYNC_SCRIPT"
+  if [ "$DO_SYNC" -eq 1 ]; then
+    require_file "$ACCOUNT_SWITCH_SCRIPT"
+  fi
   if [ "$DO_COPY" -eq 1 ]; then
     require_file "$REMOTE_START_SCRIPT"
   fi
@@ -255,6 +288,19 @@ main() {
   log "Remote target: $remote_user@$remote_host:$remote_home"
 
   append_host
+
+  if [ "$DO_SYNC" -eq 1 ]; then
+    log "Syncing auth and ensuring Codex CLI on $ALIAS"
+    local sync_args
+    sync_args=(sync-remotes --host "$ALIAS")
+    sync_args+=("${SYNC_OPTIONS[@]}")
+    if [ "$DO_START" -eq 0 ]; then
+      sync_args+=(--no-reenroll)
+    fi
+    "$ACCOUNT_SWITCH_SCRIPT" "${sync_args[@]}"
+    DO_COPY=0
+    DO_START=0
+  fi
 
   if [ "$DO_COPY" -eq 1 ]; then
     log "Installing remote daemon helper to $ALIAS:$remote_home/start-codex-daemon.sh"

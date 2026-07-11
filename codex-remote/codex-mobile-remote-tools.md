@@ -254,13 +254,19 @@ It runs every day at 03:00:
 /opt/homebrew/bin/update-ai-tools.sh
 ```
 
-Current steps:
+Default steps:
 
 - `npm update -g @anthropic-ai/claude-code`
 - `codex update`
-- `codex-after-update-fix.sh --kill-stale-chrome-kernels`
+- skips Codex.app updates to preserve macOS Privacy & Security permissions
 - `codex-restart-daemons.sh`
 - Logs current versions
+
+Run a manual Codex.app update, then reapply local patches and relaunch:
+
+```bash
+/opt/homebrew/bin/update-ai-tools.sh update
+```
 
 Watch logs:
 

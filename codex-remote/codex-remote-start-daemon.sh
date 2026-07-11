@@ -62,7 +62,8 @@ stop_app_server_processes() {
   for proc in /proc/[0-9]*; do
     [ -r "$proc/cmdline" ] || continue
     pid="${proc##*/}"
-    cmd="$(tr '\0' ' ' < "$proc/cmdline")"
+    cmd="$(tr '\0' ' ' < "$proc/cmdline" 2>/dev/null || true)"
+    [ -n "$cmd" ] || continue
     case "$cmd" in
       *"codex app-server --remote-control"*|*"codex app-server --listen unix://"*|*"codex app-server proxy"*|*"codex app-server daemon pid-update-loop"*)
         kill "$pid" 2>/dev/null || true
@@ -75,7 +76,8 @@ stop_app_server_processes() {
   sleep 1
   for pid in $pids; do
     [ -r "/proc/$pid/cmdline" ] || continue
-    cmd="$(tr '\0' ' ' < "/proc/$pid/cmdline")"
+    cmd="$(tr '\0' ' ' < "/proc/$pid/cmdline" 2>/dev/null || true)"
+    [ -n "$cmd" ] || continue
     case "$cmd" in
       *"codex app-server --remote-control"*|*"codex app-server --listen unix://"*|*"codex app-server proxy"*|*"codex app-server daemon pid-update-loop"*)
         kill -9 "$pid" 2>/dev/null || true
@@ -135,6 +137,16 @@ start_remote_control() {
 
   if printf '%s\n' "$out" | grep -q "app server is running but is not managed"; then
     warn "Unmanaged app-server is blocking remote-control; stopping it."
+    stop_app_server_processes
+    sleep 2
+    "$codex_bin" "${args[@]}"
+    return
+  fi
+
+  if printf '%s\n' "$out" | grep -q "Remote control is enabled .* connection is errored"; then
+    warn "Managed remote-control state is errored; disabling it before retry."
+    run_with_timeout "$STOP_TIMEOUT_SECONDS" "$codex_bin" app-server daemon disable-remote-control >/dev/null 2>&1 || true
+    run_with_timeout "$STOP_TIMEOUT_SECONDS" "$codex_bin" app-server daemon stop >/dev/null 2>&1 || true
     stop_app_server_processes
     sleep 2
     "$codex_bin" "${args[@]}"

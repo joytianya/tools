@@ -147,10 +147,41 @@ Mac 端脚本完成后：
 
 注意：自动安装和反代重试都要求 SSH 已经能连上。如果 SSH 目标本身超时、密钥登录不可用，脚本不能自动修复网络入口；需要先配好 SSH alias、密钥或跳板机。
 
+也可以用新增机器入口，它会把机器写入列表、同步登录、必要时自动安装 Codex，并刷新 Codex Desktop 配置：
+
+```bash
+/Users/matrix/projects/dev/tools/codex-remote/codex-add-remote-server.sh new-server-zxw
+```
+
+如果远端安装慢，可以调大安装超时；直接安装超时或失败后，默认会临时建立 SSH reverse proxy 再重试：
+
+```bash
+/Users/matrix/projects/dev/tools/codex-remote/codex-add-remote-server.sh new-server-zxw --install-timeout 300
+```
+
+不想自动安装或不想开临时反代时：
+
+```bash
+/Users/matrix/projects/dev/tools/codex-remote/codex-add-remote-server.sh new-server-zxw --no-install
+/Users/matrix/projects/dev/tools/codex-remote/codex-add-remote-server.sh new-server-zxw --no-reverse-proxy
+```
+
 只同步单台：
 
 ```bash
 /Users/matrix/projects/dev/tools/codex-remote/codex-remote-account-switch.sh sync-remotes --host bwg-server-zxw
+```
+
+watchdog 也会自动处理这种情况：如果本机 ChatGPT token 有效，但某台远端自己的 token 返回 `token_invalidated`，`codex-daemon-watchdog.sh` 会自动调用：
+
+```bash
+/Users/matrix/projects/dev/tools/codex-remote/codex-sync-auth-to-remotes.sh --host <remote>
+```
+
+也就是自动同步本机登录态并重新注册远端 daemon。可用下面的环境变量关闭：
+
+```bash
+CODEX_WATCHDOG_AUTO_SYNC_REMOTE_AUTH=0
 ```
 
 ## 验证
