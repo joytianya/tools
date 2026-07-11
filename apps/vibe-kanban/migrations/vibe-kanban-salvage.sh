@@ -2,7 +2,9 @@
 
 set -euo pipefail
 
-ROOT_DIR="${ROOT_DIR:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+TOOLS_ROOT="$(cd "$SCRIPT_DIR/../../.." && pwd)"
+ROOT_DIR="${ROOT_DIR:-$TOOLS_ROOT}"
 SOURCE_APP_DIR="${1:-/Users/matrix/Library/Application Support/ai.bloop.vibe-kanban}"
 TARGET_HOME="${2:-$ROOT_DIR/.vk-home-migrated}"
 TEMPLATE_HOME="${TEMPLATE_HOME:-$ROOT_DIR/.vk-home}"

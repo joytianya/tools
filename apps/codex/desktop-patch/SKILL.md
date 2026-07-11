@@ -23,7 +23,8 @@ Runs `fix-codex-plugins.sh` which:
 ## Usage
 
 ```bash
-bash ~/projects/dev/tools/codex-patch/fix-codex-plugins.sh
+TOOLS_HOME=${TOOLS_HOME:-$HOME/projects/dev/tools}
+$TOOLS_HOME/bin/fix-codex-plugins.sh
 ```
 
 Then relaunch Codex.
@@ -39,7 +40,8 @@ Then relaunch Codex.
 When the user asks to fix Codex plugins, run:
 
 ```bash
-bash /Users/matrix/projects/dev/tools/codex-patch/fix-codex-plugins.sh
+TOOLS_HOME=${TOOLS_HOME:-$HOME/projects/dev/tools}
+$TOOLS_HOME/bin/fix-codex-plugins.sh
 ```
 
 Check the output for any `[warn]` lines — those indicate a pattern changed after an app update and may need a manual patch update.

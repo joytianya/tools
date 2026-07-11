@@ -2,6 +2,12 @@
 
 This document records the local scripts used to keep Codex Desktop, Codex mobile remote control, and SSH remote servers working together.
 
+Repository commands use the stable wrappers in `bin/`. In each new shell session, set:
+
+```bash
+TOOLS_HOME=${TOOLS_HOME:-$HOME/projects/dev/tools}
+```
+
 ## Current Model
 
 The phone does not SSH directly into remote servers.
@@ -17,7 +23,8 @@ Flow:
 Current known remote hosts are listed in:
 
 ```bash
-/Users/matrix/projects/dev/tools/codex-remote/codex-remote-hosts.txt
+TOOLS_HOME=${TOOLS_HOME:-$HOME/projects/dev/tools}
+$TOOLS_HOME/apps/codex/remote-control/codex-remote-hosts.txt
 ```
 
 Current hosts:
@@ -47,13 +54,15 @@ ssh -o BatchMode=yes new-server-zxw 'hostname'
 Add the server with its home directory only:
 
 ```bash
-/Users/matrix/projects/dev/tools/codex-remote/codex-add-remote-server.sh new-server-zxw
+TOOLS_HOME=${TOOLS_HOME:-$HOME/projects/dev/tools}
+$TOOLS_HOME/bin/codex-add-remote-server.sh new-server-zxw
 ```
 
 Add the server with extra project paths:
 
 ```bash
-/Users/matrix/projects/dev/tools/codex-remote/codex-add-remote-server.sh new-server-zxw \
+TOOLS_HOME=${TOOLS_HOME:-$HOME/projects/dev/tools}
+$TOOLS_HOME/bin/codex-add-remote-server.sh new-server-zxw \
   /home/zxw/project1 \
   /home/zxw/project2
 ```
@@ -61,7 +70,8 @@ Add the server with extra project paths:
 Optional display name:
 
 ```bash
-/Users/matrix/projects/dev/tools/codex-remote/codex-add-remote-server.sh --name "new-server-zxw" new-server-zxw
+TOOLS_HOME=${TOOLS_HOME:-$HOME/projects/dev/tools}
+$TOOLS_HOME/bin/codex-add-remote-server.sh --name "new-server-zxw" new-server-zxw
 ```
 
 What this script does:
@@ -81,31 +91,36 @@ You do not have to manually add the server in Codex App first. If Codex App alre
 Restart Mac, `bwg-server-zxw`, `ali-server-zxw`, and any hosts listed in `codex-remote-hosts.txt`:
 
 ```bash
-/Users/matrix/projects/dev/tools/codex-remote/codex-restart-daemons.sh
+TOOLS_HOME=${TOOLS_HOME:-$HOME/projects/dev/tools}
+$TOOLS_HOME/bin/codex-restart-daemons.sh
 ```
 
 Restart only remote hosts:
 
 ```bash
-/Users/matrix/projects/dev/tools/codex-remote/codex-restart-daemons.sh --remote-only
+TOOLS_HOME=${TOOLS_HOME:-$HOME/projects/dev/tools}
+$TOOLS_HOME/bin/codex-restart-daemons.sh --remote-only
 ```
 
 Restart one remote host:
 
 ```bash
-/Users/matrix/projects/dev/tools/codex-remote/codex-restart-daemons.sh --remote-only --hosts "bwg-server-zxw"
+TOOLS_HOME=${TOOLS_HOME:-$HOME/projects/dev/tools}
+$TOOLS_HOME/bin/codex-restart-daemons.sh --remote-only --hosts "bwg-server-zxw"
 ```
 
 Restart only the Mac daemon and relaunch Codex Desktop:
 
 ```bash
-/Users/matrix/projects/dev/tools/codex-remote/codex-restart-daemons.sh --local-only --relaunch-desktop
+TOOLS_HOME=${TOOLS_HOME:-$HOME/projects/dev/tools}
+$TOOLS_HOME/bin/codex-restart-daemons.sh --local-only --relaunch-desktop
 ```
 
 The default host list comes from:
 
 ```bash
-/Users/matrix/projects/dev/tools/codex-remote/codex-remote-hosts.txt
+TOOLS_HOME=${TOOLS_HOME:-$HOME/projects/dev/tools}
+$TOOLS_HOME/apps/codex/remote-control/codex-remote-hosts.txt
 ```
 
 ## Remote Server Helper
@@ -119,7 +134,8 @@ Each remote server should have:
 It is copied from:
 
 ```bash
-/Users/matrix/projects/dev/tools/codex-remote/codex-remote-start-daemon.sh
+TOOLS_HOME=${TOOLS_HOME:-$HOME/projects/dev/tools}
+$TOOLS_HOME/apps/codex/remote-control/codex-remote-start-daemon.sh
 ```
 
 Run on the remote server:
@@ -143,19 +159,21 @@ This matters for hosts like `ali-server-zxw`, which may need the Mac proxy tunne
 Sync saved SSH remote projects into Codex App config:
 
 ```bash
-node /Users/matrix/projects/dev/tools/codex-remote/codex-sync-remote-ssh-projects.mjs --apply
+TOOLS_HOME=${TOOLS_HOME:-$HOME/projects/dev/tools}
+$TOOLS_HOME/bin/codex-sync-remote-ssh-projects.sh --apply
 ```
 
 Dry run:
 
 ```bash
-node /Users/matrix/projects/dev/tools/codex-remote/codex-sync-remote-ssh-projects.mjs --dry-run
+TOOLS_HOME=${TOOLS_HOME:-$HOME/projects/dev/tools}
+$TOOLS_HOME/bin/codex-sync-remote-ssh-projects.sh --dry-run
 ```
 
 Outputs:
 
 ```bash
-/Users/matrix/.codex/codex-app/config.json
+$HOME/.codex/codex-app/config.json
 ```
 
 The `--apply` option opens:
@@ -176,13 +194,14 @@ daemon.
 Script:
 
 ```bash
-/Users/matrix/projects/dev/tools/codex-remote/codex-daemon-watchdog.sh
+TOOLS_HOME=${TOOLS_HOME:-$HOME/projects/dev/tools}
+$TOOLS_HOME/bin/codex-daemon-watchdog.sh
 ```
 
 LaunchAgent:
 
 ```bash
-/Users/matrix/Library/LaunchAgents/com.matrix.codex-daemon-watchdog.plist
+$HOME/Library/LaunchAgents/com.matrix.codex-daemon-watchdog.plist
 ```
 
 Check launchd status:
@@ -194,20 +213,22 @@ launchctl print gui/$(id -u)/com.matrix.codex-daemon-watchdog
 Run once manually:
 
 ```bash
-/Users/matrix/projects/dev/tools/codex-remote/codex-daemon-watchdog.sh
+TOOLS_HOME=${TOOLS_HOME:-$HOME/projects/dev/tools}
+$TOOLS_HOME/bin/codex-daemon-watchdog.sh
 ```
 
 Watch logs:
 
 ```bash
-tail -f /Users/matrix/Library/Logs/codex-daemon-watchdog.log
-tail -f /Users/matrix/Library/Logs/codex-daemon-watchdog.err
+tail -f "$HOME/Library/Logs/codex-daemon-watchdog.log"
+tail -f "$HOME/Library/Logs/codex-daemon-watchdog.err"
 ```
 
 The watchdog reads the same host list:
 
 ```bash
-/Users/matrix/projects/dev/tools/codex-remote/codex-remote-hosts.txt
+TOOLS_HOME=${TOOLS_HOME:-$HOME/projects/dev/tools}
+$TOOLS_HOME/apps/codex/remote-control/codex-remote-hosts.txt
 ```
 
 ## Update Codex Desktop And Plugins
@@ -215,16 +236,18 @@ The watchdog reads the same host list:
 Manual update/fix:
 
 ```bash
-/Users/matrix/projects/dev/tools/codex-after-update-fix.sh --kill-stale-chrome-kernels
+TOOLS_HOME=${TOOLS_HOME:-$HOME/projects/dev/tools}
+$TOOLS_HOME/bin/codex-after-update-fix.sh --kill-stale-chrome-kernels
 ```
 
 Common options:
 
 ```bash
-/Users/matrix/projects/dev/tools/codex-after-update-fix.sh --skip-update
-/Users/matrix/projects/dev/tools/codex-after-update-fix.sh --force-update
-/Users/matrix/projects/dev/tools/codex-after-update-fix.sh --diagnose-only
-/Users/matrix/projects/dev/tools/codex-after-update-fix.sh --no-launch
+TOOLS_HOME=${TOOLS_HOME:-$HOME/projects/dev/tools}
+$TOOLS_HOME/bin/codex-after-update-fix.sh --skip-update
+$TOOLS_HOME/bin/codex-after-update-fix.sh --force-update
+$TOOLS_HOME/bin/codex-after-update-fix.sh --diagnose-only
+$TOOLS_HOME/bin/codex-after-update-fix.sh --no-launch
 ```
 
 What it does:
@@ -245,7 +268,7 @@ fallback when the local signing identity is unavailable or broken.
 LaunchAgent:
 
 ```bash
-/Users/matrix/Library/LaunchAgents/com.matrix.update-ai-tools.plist
+$HOME/Library/LaunchAgents/com.matrix.update-ai-tools.plist
 ```
 
 It runs every day at 03:00:
@@ -271,7 +294,7 @@ Run a manual Codex.app update, then reapply local patches and relaunch:
 Watch logs:
 
 ```bash
-tail -f /Users/matrix/Library/Logs/update-ai-tools.log
+tail -f "$HOME/Library/Logs/update-ai-tools.log"
 ```
 
 Run manually:
@@ -285,20 +308,22 @@ Run manually:
 Existing LaunchAgent:
 
 ```bash
-/Users/matrix/Library/LaunchAgents/com.matrix.ssh-tunnel.plist
+$HOME/Library/LaunchAgents/com.matrix.ssh-tunnel.plist
 ```
 
 Script:
 
 ```bash
-/Users/matrix/projects/dev/tools/net/ssh_tunnel.sh
+TOOLS_HOME=${TOOLS_HOME:-$HOME/projects/dev/tools}
+$TOOLS_HOME/bin/ssh-tunnel.sh
 ```
 
 Common commands:
 
 ```bash
-/Users/matrix/projects/dev/tools/net/ssh_tunnel.sh status
-/Users/matrix/projects/dev/tools/net/ssh_tunnel.sh restart
+TOOLS_HOME=${TOOLS_HOME:-$HOME/projects/dev/tools}
+$TOOLS_HOME/bin/ssh-tunnel.sh status
+$TOOLS_HOME/bin/ssh-tunnel.sh restart
 ```
 
 This is separate from the Codex daemon watchdog. The tunnel keeps proxy forwarding alive for hosts that need it, such as `ali-server-zxw`.
@@ -308,19 +333,22 @@ This is separate from the Codex daemon watchdog. The tunnel keeps proxy forwardi
 Manual plugin patch entry:
 
 ```bash
-/Users/matrix/projects/dev/tools/fix-codex-plugins.sh
+TOOLS_HOME=${TOOLS_HOME:-$HOME/projects/dev/tools}
+$TOOLS_HOME/bin/fix-codex-plugins.sh
 ```
 
 Lower-level patch folder:
 
 ```bash
-/Users/matrix/projects/dev/tools/codex-patch/
+TOOLS_HOME=${TOOLS_HOME:-$HOME/projects/dev/tools}
+$TOOLS_HOME/apps/codex/desktop-patch/
 ```
 
 Use the higher-level update script first:
 
 ```bash
-/Users/matrix/projects/dev/tools/codex-after-update-fix.sh --skip-update --kill-stale-chrome-kernels
+TOOLS_HOME=${TOOLS_HOME:-$HOME/projects/dev/tools}
+$TOOLS_HOME/bin/codex-after-update-fix.sh --skip-update --kill-stale-chrome-kernels
 ```
 
 ## Quick Troubleshooting
@@ -353,7 +381,8 @@ Expected healthy signs:
 If the phone list is missing projects:
 
 ```bash
-node /Users/matrix/projects/dev/tools/codex-remote/codex-sync-remote-ssh-projects.mjs --apply
+TOOLS_HOME=${TOOLS_HOME:-$HOME/projects/dev/tools}
+$TOOLS_HOME/bin/codex-sync-remote-ssh-projects.sh --apply
 ```
 
 Then refresh or reopen the phone's ChatGPT/Codex remote list after a short delay.
@@ -363,9 +392,9 @@ Then refresh or reopen the phone's ChatGPT/Codex remote list after a short delay
 Local:
 
 ```bash
-/Users/matrix/.codex/.codex-global-state.json
-/Users/matrix/.codex/codex-app/config.json
-/Users/matrix/projects/dev/tools/codex-remote/codex-remote-hosts.txt
+$HOME/.codex/.codex-global-state.json
+$HOME/.codex/codex-app/config.json
+$TOOLS_HOME/apps/codex/remote-control/codex-remote-hosts.txt
 ```
 
 Remote:
@@ -380,7 +409,7 @@ Remote:
 LaunchAgents:
 
 ```bash
-/Users/matrix/Library/LaunchAgents/com.matrix.codex-daemon-watchdog.plist
-/Users/matrix/Library/LaunchAgents/com.matrix.update-ai-tools.plist
-/Users/matrix/Library/LaunchAgents/com.matrix.ssh-tunnel.plist
+$HOME/Library/LaunchAgents/com.matrix.codex-daemon-watchdog.plist
+$HOME/Library/LaunchAgents/com.matrix.update-ai-tools.plist
+$HOME/Library/LaunchAgents/com.matrix.ssh-tunnel.plist
 ```

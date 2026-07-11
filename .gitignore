@@ -22,3 +22,15 @@
 # Agent runtime state (oh-my-claudecode / Claude Code) — not source
 .omc/
 .claude/
+
+# Local-only workspace data and extracted Codex bundles
+.local/
+main-B6erVVHq.js
+profile-visibility-WAr1jsej.js
+
+# Skill Audit generated snapshot and local server state
+tooling/codex/skill-audit/generated/
+tooling/codex/skill-audit/runtime/
+
+# Private credential export; canonical copy lives outside this repository
+codex-beszel-sg-ops-access-key.csv

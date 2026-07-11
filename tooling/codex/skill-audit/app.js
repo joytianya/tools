@@ -396,9 +396,9 @@ async function copyConfigHints() {
 }
 
 function buildSuggestedCommand({ apply }) {
-  const script = "/Users/matrix/projects/dev/tools/skill-audit/apply-decisions.mjs";
+  const script = `${data.repoRoot}/bin/skill-audit-apply.sh`;
   const mode = apply ? "--apply --yes" : "--dry-run";
-  return `node ${script} --suggested ${mode}`;
+  return `"${script}" --suggested ${mode}`;
 }
 
 async function copyTextOrPrompt(text, message) {

@@ -690,7 +690,7 @@ verify_plugin_local_state() {
   local app_asar="$app_path/Contents/Resources/app.asar"
   local marker
   local enabled_count
-  local patch_test="/Users/matrix/projects/dev/tools/codex-patch/test-patch-codex-plugins.mjs"
+  local patch_test="$SCRIPT_DIR/../desktop-patch/test-patch-codex-plugins.mjs"
   local required_markers=(
     "codex-patch:auth-account-fields"
     "codex-patch:auth-account-output"

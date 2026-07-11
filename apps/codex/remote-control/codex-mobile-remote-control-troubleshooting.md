@@ -2,6 +2,12 @@
 
 记录时间：2026-05-30
 
+仓库命令统一通过稳定入口运行；每个新 shell 会话先设置：
+
+```bash
+TOOLS_HOME=${TOOLS_HOME:-$HOME/projects/dev/tools}
+```
+
 ## 问题现象
 
 - 手机扫码 Codex Desktop 的连接入口后，最初没有反应或登录流程报错。
@@ -148,7 +154,7 @@ sqlite3 ~/.codex/logs_2.sqlite \
 - macOS GUI 应用不自动继承当前终端的代理变量。需要用 `launchctl setenv`，然后通过 `open -a Codex` 或 Dock/Finder 重新启动。
 - 不要让 Codex Desktop app-server 继承 `CODEX_API_KEY` / `OPENAI_API_KEY`。本次后续验证发现，Desktop app-server 带着 API key 时，插件会灰掉或提示需要 ChatGPT 登录；修复方式是清掉 GUI API-key 环境，并用干净环境启动 Desktop。
 - 如果要让 Desktop/手机远程控制消耗 gaccode API 额度，使用单独的 `GACCODE_API_KEY`。当前配置已经验证：ChatGPT 登录负责远程控制，`model_provider = "gaccode"` 负责模型调用；实际请求会打到 `https://gaccode.com/codex/v1/responses`。
-- 如果手机端卡在模型列表或长时间加载，检查是否有 `missing field models`。当前修复是配置 `model_catalog_json = "/Users/matrix/.codex/gaccode-model-catalog.json"`，让 `model/list` 使用本地模型目录，生成请求继续走 `gaccode /responses`。
+- 如果手机端卡在模型列表或长时间加载，检查是否有 `missing field models`。当前修复是把 `model_catalog_json` 配置为当前用户 `~/.codex/gaccode-model-catalog.json` 的绝对路径，让 `model/list` 使用本地模型目录，生成请求继续走 `gaccode /responses`。
 - 如果模型调用返回 `402 Payment Required: Access denied: No active subscription`，说明本地路由已经到 gaccode，但当前 gaccode key/订阅不可用。
 - 最强验证不是“显示在线”，而是日志中出现手机客户端请求，例如 `codex_chatgpt_ios_remote` 的 `thread/start` 或 `thread/resume`；如果要证明模型额度路径，还要看到同一手机请求链路下的 `POST to https://gaccode.com/codex/v1/responses`。
 - 尽量先用 UI 或进程环境修复；不要直接 patch `/Applications/Codex.app`，也不要贸然删 `~/.codex` 数据库。
@@ -156,19 +162,22 @@ sqlite3 ~/.codex/logs_2.sqlite \
 一键修复 Desktop 环境：
 
 ```bash
-/Users/matrix/projects/dev/tools/codex-remote/codex-remote-account-switch.sh fix-desktop
+TOOLS_HOME=${TOOLS_HOME:-$HOME/projects/dev/tools}
+$TOOLS_HOME/bin/codex-remote-account-switch.sh fix-desktop
 ```
 
 验证手机是否真正触发 gaccode 模型请求：
 
 ```bash
-/Users/matrix/projects/dev/tools/codex-remote/codex-remote-account-switch.sh verify-phone-model
+TOOLS_HOME=${TOOLS_HOME:-$HOME/projects/dev/tools}
+$TOOLS_HOME/bin/codex-remote-account-switch.sh verify-phone-model
 ```
 
 一次性检查当前目标的机器可验证状态：
 
 ```bash
-/Users/matrix/projects/dev/tools/codex-remote/codex-remote-account-switch.sh verify-all
+TOOLS_HOME=${TOOLS_HOME:-$HOME/projects/dev/tools}
+$TOOLS_HOME/bin/codex-remote-account-switch.sh verify-all
 ```
 
 这个命令会检查 Desktop app-server 环境、ChatGPT 登录状态、云端远控环境、手机线程到 `gaccode /responses` 的证据、插件补丁标记、App 签名、插件补丁测试和已启用插件数量。它不能替代最后的视觉检查：Codex Desktop 插件页不能再显示“需要使用 ChatGPT 登录”的灰色门禁。
@@ -176,7 +185,8 @@ sqlite3 ~/.codex/logs_2.sqlite \
 如果要现场监听下一次手机发送：
 
 ```bash
-/Users/matrix/projects/dev/tools/codex-remote/codex-remote-account-switch.sh watch-phone --wait 120
+TOOLS_HOME=${TOOLS_HOME:-$HOME/projects/dev/tools}
+$TOOLS_HOME/bin/codex-remote-account-switch.sh watch-phone --wait 120
 ```
 
 现场监听运行后，在手机进入 `mac-mini`，发送 `PHONE_OK`。成功时会看到 `codex_chatgpt_ios_remote -> gaccode /responses`。验证脚本会按同一个 `thread_id` 关联手机进入线程和后续模型请求；模型请求日志本身不一定重复带 `codex_chatgpt_ios_remote`。
@@ -184,5 +194,6 @@ sqlite3 ~/.codex/logs_2.sqlite \
 如果脚本刚重启 Desktop 后立刻显示 `online: false`，先等 30-60 秒再运行：
 
 ```bash
-/Users/matrix/projects/dev/tools/codex-remote/codex-remote-account-switch.sh status
+TOOLS_HOME=${TOOLS_HOME:-$HOME/projects/dev/tools}
+$TOOLS_HOME/bin/codex-remote-account-switch.sh status
 ```

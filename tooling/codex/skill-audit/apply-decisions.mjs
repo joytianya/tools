@@ -6,7 +6,7 @@ import { fileURLToPath } from "node:url";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const home = os.homedir();
-const dataPath = path.join(here, "skills-data.js");
+const dataPath = path.join(here, "generated", "skills-data.js");
 const configPath = path.join(home, ".codex", "config.toml");
 const args = process.argv.slice(2);
 

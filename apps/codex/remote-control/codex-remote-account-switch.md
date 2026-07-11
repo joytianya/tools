@@ -2,10 +2,17 @@
 
 这个文档记录如何更换用于手机远程控制 Codex Desktop 的 ChatGPT 账号。
 
+仓库命令统一通过稳定入口运行；每个新 shell 会话先设置：
+
+```bash
+TOOLS_HOME=${TOOLS_HOME:-$HOME/projects/dev/tools}
+```
+
 配套脚本：
 
 ```bash
-/Users/matrix/projects/dev/tools/codex-remote/codex-remote-account-switch.sh
+TOOLS_HOME=${TOOLS_HOME:-$HOME/projects/dev/tools}
+$TOOLS_HOME/bin/codex-remote-account-switch.sh
 ```
 
 当前已配置成双通道：
@@ -16,8 +23,8 @@
 早先尝试把 `OPENAI_API_KEY` / `CODEX_API_KEY` 全局塞给 Desktop，会让 Desktop 插件/ChatGPT 能力集表现异常；现在已经改为只给 Desktop 注入 `GACCODE_API_KEY`。旧配置备份位于：
 
 ```text
-/Users/matrix/.codex/config.toml.backup-before-desktop-gaccode-dual-chan-20260530012302
-/Users/matrix/.codex/config.toml.backup-before-gaccode-default-20260530005506
+~/.codex/config.toml.backup-before-desktop-gaccode-dual-chan-20260530012302
+~/.codex/config.toml.backup-before-gaccode-default-20260530005506
 ```
 
 ## 适用场景
@@ -46,7 +53,8 @@
 如果 Desktop 插件变灰或提示需要 ChatGPT 登录，优先运行：
 
 ```bash
-/Users/matrix/projects/dev/tools/codex-remote/codex-remote-account-switch.sh fix-desktop
+TOOLS_HOME=${TOOLS_HOME:-$HOME/projects/dev/tools}
+$TOOLS_HOME/bin/codex-remote-account-switch.sh fix-desktop
 ```
 
 刚重启后的几十秒内，云端环境可能短暂显示 `online: false`。等 30-60 秒再运行 `status` 或 `verify`，以第二次结果为准。
@@ -74,8 +82,9 @@ request URL: https://gaccode.com/codex/v1/responses
 更换 key 时不要把 key 写进命令历史，使用 stdin：
 
 ```bash
-printf '%s\n' "$NEW_GACCODE_KEY" | /Users/matrix/projects/dev/tools/codex-remote/codex-remote-account-switch.sh update-gaccode-key
-/Users/matrix/projects/dev/tools/codex-remote/codex-remote-account-switch.sh fix-desktop
+TOOLS_HOME=${TOOLS_HOME:-$HOME/projects/dev/tools}
+printf '%s\n' "$NEW_GACCODE_KEY" | $TOOLS_HOME/bin/codex-remote-account-switch.sh update-gaccode-key
+$TOOLS_HOME/bin/codex-remote-account-switch.sh fix-desktop
 ```
 
 ## 一键切换账号
@@ -83,7 +92,8 @@ printf '%s\n' "$NEW_GACCODE_KEY" | /Users/matrix/projects/dev/tools/codex-remote
 运行：
 
 ```bash
-/Users/matrix/projects/dev/tools/codex-remote/codex-remote-account-switch.sh switch
+TOOLS_HOME=${TOOLS_HOME:-$HOME/projects/dev/tools}
+$TOOLS_HOME/bin/codex-remote-account-switch.sh switch
 ```
 
 脚本会执行：
@@ -99,7 +109,8 @@ printf '%s\n' "$NEW_GACCODE_KEY" | /Users/matrix/projects/dev/tools/codex-remote
 如果代理不是 `127.0.0.1:7890`：
 
 ```bash
-/Users/matrix/projects/dev/tools/codex-remote/codex-remote-account-switch.sh switch \
+TOOLS_HOME=${TOOLS_HOME:-$HOME/projects/dev/tools}
+$TOOLS_HOME/bin/codex-remote-account-switch.sh switch \
   --http-proxy http://127.0.0.1:7890 \
   --all-proxy socks5h://127.0.0.1:7890
 ```
@@ -107,7 +118,8 @@ printf '%s\n' "$NEW_GACCODE_KEY" | /Users/matrix/projects/dev/tools/codex-remote
 如果不需要代理：
 
 ```bash
-/Users/matrix/projects/dev/tools/codex-remote/codex-remote-account-switch.sh switch --no-proxy
+TOOLS_HOME=${TOOLS_HOME:-$HOME/projects/dev/tools}
+$TOOLS_HOME/bin/codex-remote-account-switch.sh switch --no-proxy
 ```
 
 ## 手机端操作
@@ -124,7 +136,8 @@ Mac 端脚本完成后：
 本机重新登录成功后，如果要让 `bwg-server-zxw`、`ali-server-zxw` 这类远端机器也作为手机端 remote-control 环境在线，运行：
 
 ```bash
-/Users/matrix/projects/dev/tools/codex-remote/codex-remote-account-switch.sh sync-remotes
+TOOLS_HOME=${TOOLS_HOME:-$HOME/projects/dev/tools}
+$TOOLS_HOME/bin/codex-remote-account-switch.sh sync-remotes
 ```
 
 这个入口会调用 `codex-sync-auth-to-remotes.sh`：
@@ -140,7 +153,7 @@ Mac 端脚本完成后：
 机器列表来自：
 
 ```text
-/Users/matrix/projects/dev/tools/codex-remote/codex-remote-hosts.txt
+$TOOLS_HOME/apps/codex/remote-control/codex-remote-hosts.txt
 ```
 
 以后新增机器时，在这个文件里加一行 SSH 目标即可，例如 SSH alias、`user@IP` 或能用默认 SSH 用户登录的 IP。
@@ -150,32 +163,37 @@ Mac 端脚本完成后：
 也可以用新增机器入口，它会把机器写入列表、同步登录、必要时自动安装 Codex，并刷新 Codex Desktop 配置：
 
 ```bash
-/Users/matrix/projects/dev/tools/codex-remote/codex-add-remote-server.sh new-server-zxw
+TOOLS_HOME=${TOOLS_HOME:-$HOME/projects/dev/tools}
+$TOOLS_HOME/bin/codex-add-remote-server.sh new-server-zxw
 ```
 
 如果远端安装慢，可以调大安装超时；直接安装超时或失败后，默认会临时建立 SSH reverse proxy 再重试：
 
 ```bash
-/Users/matrix/projects/dev/tools/codex-remote/codex-add-remote-server.sh new-server-zxw --install-timeout 300
+TOOLS_HOME=${TOOLS_HOME:-$HOME/projects/dev/tools}
+$TOOLS_HOME/bin/codex-add-remote-server.sh new-server-zxw --install-timeout 300
 ```
 
 不想自动安装或不想开临时反代时：
 
 ```bash
-/Users/matrix/projects/dev/tools/codex-remote/codex-add-remote-server.sh new-server-zxw --no-install
-/Users/matrix/projects/dev/tools/codex-remote/codex-add-remote-server.sh new-server-zxw --no-reverse-proxy
+TOOLS_HOME=${TOOLS_HOME:-$HOME/projects/dev/tools}
+$TOOLS_HOME/bin/codex-add-remote-server.sh new-server-zxw --no-install
+$TOOLS_HOME/bin/codex-add-remote-server.sh new-server-zxw --no-reverse-proxy
 ```
 
 只同步单台：
 
 ```bash
-/Users/matrix/projects/dev/tools/codex-remote/codex-remote-account-switch.sh sync-remotes --host bwg-server-zxw
+TOOLS_HOME=${TOOLS_HOME:-$HOME/projects/dev/tools}
+$TOOLS_HOME/bin/codex-remote-account-switch.sh sync-remotes --host bwg-server-zxw
 ```
 
 watchdog 也会自动处理这种情况：如果本机 ChatGPT token 有效，但某台远端自己的 token 返回 `token_invalidated`，`codex-daemon-watchdog.sh` 会自动调用：
 
 ```bash
-/Users/matrix/projects/dev/tools/codex-remote/codex-sync-auth-to-remotes.sh --host <remote>
+TOOLS_HOME=${TOOLS_HOME:-$HOME/projects/dev/tools}
+$TOOLS_HOME/bin/codex-sync-auth-to-remotes.sh --host <remote>
 ```
 
 也就是自动同步本机登录态并重新注册远端 daemon。可用下面的环境变量关闭：
@@ -189,7 +207,8 @@ CODEX_WATCHDOG_AUTO_SYNC_REMOTE_AUTH=0
 查看本机和云端状态：
 
 ```bash
-/Users/matrix/projects/dev/tools/codex-remote/codex-remote-account-switch.sh status
+TOOLS_HOME=${TOOLS_HOME:-$HOME/projects/dev/tools}
+$TOOLS_HOME/bin/codex-remote-account-switch.sh status
 ```
 
 `status` 会显示默认 provider、GUI 代理、Desktop app-server 环境状态，以及云端 `mac-mini` 是否在线。
@@ -197,7 +216,8 @@ CODEX_WATCHDOG_AUTO_SYNC_REMOTE_AUTH=0
 查看远程控制环境和最近手机端连接日志：
 
 ```bash
-/Users/matrix/projects/dev/tools/codex-remote/codex-remote-account-switch.sh verify
+TOOLS_HOME=${TOOLS_HOME:-$HOME/projects/dev/tools}
+$TOOLS_HOME/bin/codex-remote-account-switch.sh verify
 ```
 
 成功时应看到：
@@ -209,7 +229,8 @@ CODEX_WATCHDOG_AUTO_SYNC_REMOTE_AUTH=0
 验证模型请求是否实际走 `gaccode`：
 
 ```bash
-/Users/matrix/projects/dev/tools/codex-remote/codex-remote-account-switch.sh verify-model
+TOOLS_HOME=${TOOLS_HOME:-$HOME/projects/dev/tools}
+$TOOLS_HOME/bin/codex-remote-account-switch.sh verify-model
 ```
 
 这个命令会分别测试系统 `codex` 和 Codex Desktop 内置 app-server。成功时会看到 Desktop 线程的 `modelProvider` 为 `gaccode`、`model` 为当前 `~/.codex/config.toml` 顶层模型，并出现 `thread/tokenUsage/updated` 或 `turn/completed`。
@@ -228,8 +249,9 @@ CODEX_WATCHDOG_AUTO_SYNC_REMOTE_AUTH=0
 - 如果更新后手机又显示离线，优先运行：
 
 ```bash
-/Users/matrix/projects/dev/tools/codex-remote/codex-remote-account-switch.sh fix-desktop
-/Users/matrix/projects/dev/tools/codex-remote/codex-remote-account-switch.sh verify
+TOOLS_HOME=${TOOLS_HOME:-$HOME/projects/dev/tools}
+$TOOLS_HOME/bin/codex-remote-account-switch.sh fix-desktop
+$TOOLS_HOME/bin/codex-remote-account-switch.sh verify
 ```
 
 不要因为更新后短暂离线就删除 `~/.codex` 数据库。先看云端 `online` 和本地日志。
@@ -253,7 +275,7 @@ codex app-server --analytics-default-enabled
 所以现在采用的是默认配置方式，而不是 Desktop 启动参数：
 
 - `~/.codex/config.toml` 顶层设置 `model_provider = "gaccode"`。
-- `~/.codex/config.toml` 顶层设置 `model_catalog_json = "/Users/matrix/.codex/gaccode-model-catalog.json"`，避免手机/桌面的 `model/list` 被 gaccode `/models` 的返回格式卡住。
+- `~/.codex/config.toml` 顶层把 `model_catalog_json` 设置为当前用户 `~/.codex/gaccode-model-catalog.json` 的绝对路径，避免手机/桌面的 `model/list` 被 gaccode `/models` 的返回格式卡住。
 - `[model_providers.gaccode]` 使用 `base_url = "https://gaccode.com/codex/v1"`。
 - provider 的 `env_key` 是 `GACCODE_API_KEY`。
 - Desktop 通过 `launchctl setenv GACCODE_API_KEY ...` 获取模型 key。
@@ -279,7 +301,7 @@ codex app-server --analytics-default-enabled
 如果误改了默认 provider，恢复备份：
 
 ```bash
-cp /Users/matrix/.codex/config.toml.backup-before-desktop-gaccode-dual-chan-20260530012302 ~/.codex/config.toml
+cp "$HOME/.codex/config.toml.backup-before-desktop-gaccode-dual-chan-20260530012302" ~/.codex/config.toml
 ```
 
 然后重启 Codex Desktop：
@@ -315,61 +337,71 @@ Codex Desktop 里看到的 `vpn_pool`、SSH 远程连接、以及其他远程主
 设置 GUI 代理：
 
 ```bash
-/Users/matrix/projects/dev/tools/codex-remote/codex-remote-account-switch.sh set-proxy
+TOOLS_HOME=${TOOLS_HOME:-$HOME/projects/dev/tools}
+$TOOLS_HOME/bin/codex-remote-account-switch.sh set-proxy
 ```
 
 取消 GUI 代理：
 
 ```bash
-/Users/matrix/projects/dev/tools/codex-remote/codex-remote-account-switch.sh unset-proxy
+TOOLS_HOME=${TOOLS_HOME:-$HOME/projects/dev/tools}
+$TOOLS_HOME/bin/codex-remote-account-switch.sh unset-proxy
 ```
 
 设置 GUI `GACCODE_API_KEY`：
 
 ```bash
-/Users/matrix/projects/dev/tools/codex-remote/codex-remote-account-switch.sh set-gaccode-key
+TOOLS_HOME=${TOOLS_HOME:-$HOME/projects/dev/tools}
+$TOOLS_HOME/bin/codex-remote-account-switch.sh set-gaccode-key
 ```
 
 取消 GUI `GACCODE_API_KEY`：
 
 ```bash
-/Users/matrix/projects/dev/tools/codex-remote/codex-remote-account-switch.sh unset-gaccode-key
+TOOLS_HOME=${TOOLS_HOME:-$HOME/projects/dev/tools}
+$TOOLS_HOME/bin/codex-remote-account-switch.sh unset-gaccode-key
 ```
 
 更新本地保存的 `GACCODE_API_KEY`：
 
 ```bash
-printf '%s\n' "$NEW_GACCODE_KEY" | /Users/matrix/projects/dev/tools/codex-remote/codex-remote-account-switch.sh update-gaccode-key
+TOOLS_HOME=${TOOLS_HOME:-$HOME/projects/dev/tools}
+printf '%s\n' "$NEW_GACCODE_KEY" | $TOOLS_HOME/bin/codex-remote-account-switch.sh update-gaccode-key
 ```
 
 设置 GUI `CODEX_API_KEY`，仅用于明确测试 Desktop API provider，不建议日常启用：
 
 ```bash
-/Users/matrix/projects/dev/tools/codex-remote/codex-remote-account-switch.sh set-api-key
+TOOLS_HOME=${TOOLS_HOME:-$HOME/projects/dev/tools}
+$TOOLS_HOME/bin/codex-remote-account-switch.sh set-api-key
 ```
 
 取消 GUI `CODEX_API_KEY`：
 
 ```bash
-/Users/matrix/projects/dev/tools/codex-remote/codex-remote-account-switch.sh unset-api-key
+TOOLS_HOME=${TOOLS_HOME:-$HOME/projects/dev/tools}
+$TOOLS_HOME/bin/codex-remote-account-switch.sh unset-api-key
 ```
 
 只查看状态：
 
 ```bash
-/Users/matrix/projects/dev/tools/codex-remote/codex-remote-account-switch.sh status
+TOOLS_HOME=${TOOLS_HOME:-$HOME/projects/dev/tools}
+$TOOLS_HOME/bin/codex-remote-account-switch.sh status
 ```
 
 修复 Desktop 插件灰色、误走 API key 或提示需要 ChatGPT 登录：
 
 ```bash
-/Users/matrix/projects/dev/tools/codex-remote/codex-remote-account-switch.sh fix-desktop
+TOOLS_HOME=${TOOLS_HOME:-$HOME/projects/dev/tools}
+$TOOLS_HOME/bin/codex-remote-account-switch.sh fix-desktop
 ```
 
 只验证手机远程控制：
 
 ```bash
-/Users/matrix/projects/dev/tools/codex-remote/codex-remote-account-switch.sh verify
+TOOLS_HOME=${TOOLS_HOME:-$HOME/projects/dev/tools}
+$TOOLS_HOME/bin/codex-remote-account-switch.sh verify
 ```
 
 ## 安全边界
