@@ -73,6 +73,15 @@ test("canonical modules exist in the hybrid taxonomy", () => {
   }
 });
 
+test("repository root contains no shell entrypoints", () => {
+  const rootShellScripts = readdirSync(root, { withFileTypes: true })
+    .filter((entry) => entry.isFile() && entry.name.endsWith(".sh"))
+    .map((entry) => entry.name)
+    .sort();
+
+  assert.deepEqual(rootShellScripts, []);
+});
+
 test("stable bin wrappers are executable and target canonical implementations", () => {
   for (const [wrapper, target] of Object.entries(wrappers)) {
     const path = join(root, wrapper);
