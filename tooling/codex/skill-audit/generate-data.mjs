@@ -5,9 +5,12 @@ import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
+import { parseAvailableSkills, parseRoots } from "./parse-skills.mjs";
+
 const here = path.dirname(fileURLToPath(import.meta.url));
 const home = os.homedir();
-const outputPath = path.join(here, "skills-data.js");
+const repoRoot = path.resolve(here, "../../..");
+const outputPath = path.join(here, "generated", "skills-data.js");
 const configPath = path.join(home, ".codex", "config.toml");
 
 function collectStrings(value, out = []) {
@@ -19,40 +22,6 @@ function collectStrings(value, out = []) {
     for (const item of Object.values(value)) collectStrings(item, out);
   }
   return out;
-}
-
-function parseSection(text, start, end) {
-  const startIndex = text.indexOf(start);
-  if (startIndex === -1) return "";
-  const sectionStart = startIndex + start.length;
-  const endIndex = text.indexOf(end, sectionStart);
-  return text.slice(sectionStart, endIndex === -1 ? undefined : endIndex);
-}
-
-function parseRoots(text) {
-  const section = parseSection(text, "### Skill roots", "### Available skills");
-  const roots = {};
-  for (const line of section.split("\n")) {
-    const match = line.match(/^- `(r\d+)` = `(.+)`$/);
-    if (match) roots[match[1]] = match[2];
-  }
-  return roots;
-}
-
-function parseAvailableSkills(text) {
-  const section = parseSection(text, "### Available skills", "### How to use skills");
-  const skills = [];
-  for (const line of section.split("\n")) {
-    if (!line.startsWith("- ")) continue;
-    const marker = ": (file: ";
-    const markerIndex = line.lastIndexOf(marker);
-    if (markerIndex === -1 || !line.endsWith(")")) continue;
-    skills.push({
-      name: line.slice(2, markerIndex),
-      fileRef: line.slice(markerIndex + marker.length, -1),
-    });
-  }
-  return skills;
 }
 
 function resolveFileRef(fileRef, roots) {
@@ -362,6 +331,7 @@ const counts = {
 const data = {
   generatedAt: new Date().toISOString(),
   home,
+  repoRoot,
   configPath,
   counts,
   roots,
@@ -386,6 +356,7 @@ const data = {
   ],
 };
 
+fs.mkdirSync(path.dirname(outputPath), { recursive: true });
 fs.writeFileSync(
   outputPath,
   `window.SKILL_AUDIT_DATA = ${JSON.stringify(data, null, 2)};\n`,
