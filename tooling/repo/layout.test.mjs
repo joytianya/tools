@@ -77,6 +77,7 @@ test("stable bin wrappers are executable and target canonical implementations", 
   for (const [wrapper, target] of Object.entries(wrappers)) {
     const path = join(root, wrapper);
     const content = readFileSync(path, "utf8");
+    assert.doesNotThrow(() => statSync(join(root, target)), `missing target ${target}`);
     assert.ok(statSync(path).mode & 0o111, `${wrapper} is not executable`);
     assert.match(content, /\bexec\b/, `${wrapper} must use exec`);
     assert.ok(content.includes(target), `${wrapper} does not target ${target}`);
